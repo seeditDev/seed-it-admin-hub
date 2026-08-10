@@ -30,7 +30,7 @@ export async function listStaff(tenantId?: string): Promise<AppUser[]> {
 export async function provisionStaff(input: StaffInput): Promise<{ uid: string; authCreated: boolean }> {
   const result = await provisionAccount({
     email: input.email,
-    password: input.password,
+    ...(input.password ? { password: input.password } : {}),
     displayName: input.displayName,
     rollNumber: "",
     tenantId: input.tenantId,
