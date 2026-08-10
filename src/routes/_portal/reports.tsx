@@ -248,7 +248,7 @@ function ReportsPage() {
   const byCollege = useMemo(() => {
     const map = new Map<string, { sum: number; count: number }>();
     for (const r of filteredResults) {
-      const key = tenantNameOf.get(r.tenantId) ?? r.tenantId || "Unknown";
+      const key = tenantNameOf.get(r.tenantId) ?? (r.tenantId || "Unknown");
       const cur = map.get(key) ?? { sum: 0, count: 0 };
       cur.sum += r.percentage;
       cur.count += 1;

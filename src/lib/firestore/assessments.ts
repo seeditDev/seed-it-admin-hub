@@ -138,7 +138,9 @@ export async function getAssessment(id: string): Promise<AssessmentDoc | null> {
   return snap.exists() ? mapAssessment(snap.id, snap.data() as Record<string, unknown>) : null;
 }
 
-export type AssessmentInput = Partial<Omit<AssessmentDoc, "createdAt">> & {
+export type AssessmentInput = {
+  [K in keyof Omit<AssessmentDoc, "createdAt">]?: Omit<AssessmentDoc, "createdAt">[K] | undefined;
+} & {
   title: string;
   type: AssessmentType;
 };
