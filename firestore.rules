@@ -1,0 +1,141 @@
+rules_version = '2';
+
+// SEED-IT Platform — Firestore v2 security rules
+// Deploy: Firebase console -> Firestore Database -> Rules -> paste -> Publish
+// (or `firebase deploy --only firestore:rules` with this file at the project root)
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /* ------------------------------ helpers ------------------------------ */
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function myProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasProfile() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function myRole() {
+      return hasProfile() ? myProfile().role : 'none';
+    }
+
+    function isAdmin() {
+      return myRole() == 'admin' || myRole() == 'superadmin';
+    }
+
+    function isStaff() {
+      return myRole() == 'staff';
+    }
+
+    function isPortal() {
+      return isAdmin() || isStaff();
+    }
+
+    function myTenant() {
+      return hasProfile() ? myProfile().tenantId : '';
+    }
+
+    // Staff are scoped to their own tenant; admins are unrestricted.
+    function tenantAllowed(tenantId) {
+      return isAdmin() || (isStaff() && tenantId == myTenant());
+    }
+
+    /* ------------------------------- users ------------------------------- */
+
+    match /users/{userId} {
+      // Own profile, or any portal user reading rosters they are scoped to.
+      allow get: if isSignedIn() && (request.auth.uid == userId || isPortal());
+      allow list: if isPortal();
+
+      // Admins provision anyone. Staff provision students inside their tenant.
+      allow create: if isAdmin()
+        || (isStaff()
+            && request.resource.data.role == 'student'
+            && request.resource.data.tenantId == myTenant())
+        // A brand-new student signing in for the first time may seed its own doc.
+        || (isSignedIn() && request.auth.uid == userId
+            && request.resource.data.role == 'student');
+
+      allow update: if isAdmin()
+        || (isStaff() && tenantAllowed(resource.data.tenantId)
+            && request.resource.data.role == resource.data.role)
+        // Users may refresh their own login timestamp but never escalate role.
+        || (isSignedIn() && request.auth.uid == userId
+            && request.resource.data.role == resource.data.role
+            && request.resource.data.tenantId == resource.data.tenantId
+            && request.resource.data.premium == resource.data.premium);
+
+      allow delete: if isAdmin();
+    }
+
+    /* ------------------------------ tenants ------------------------------ */
+
+    match /tenants/{tenantId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+
+      match /cohorts/{cohortId} {
+        allow read: if isSignedIn();
+        allow create, delete: if isAdmin();
+        allow update: if isAdmin() || (isStaff() && tenantId == myTenant());
+      }
+    }
+
+    /* ---------------------------- assessments ---------------------------- */
+
+    match /assessments/{assessmentId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isPortal();
+
+      match /{document=**} {
+        allow read: if isSignedIn();
+        allow write: if isPortal();
+      }
+    }
+
+    /* ------------------------------ results ------------------------------ */
+
+    match /assessmentResults/{assessmentId} {
+      allow read: if isPortal();
+      allow write: if isAdmin();
+
+      match /students/{userId} {
+        // A student writes only their own submission; portal users read all.
+        allow read: if isPortal() || request.auth.uid == userId;
+        allow create, update: if request.auth.uid == userId || isPortal();
+        allow delete: if isAdmin();
+      }
+    }
+
+    /* --------------------------- proctoring logs -------------------------- */
+
+    match /proctoringLogs/{attemptId} {
+      allow read: if isPortal();
+      allow write: if isSignedIn();
+
+      match /events/{eventId} {
+        allow read: if isPortal();
+        // Append-only from the student runtime; never editable afterwards.
+        allow create: if isSignedIn();
+        allow update: if false;
+        allow delete: if isAdmin();
+      }
+    }
+
+    /* ------------------------- module assignments ------------------------- */
+
+    match /moduleAssignments/{assignmentId} {
+      allow read: if isSignedIn();
+      allow write: if isPortal();
+    }
+
+    /* Everything else is denied by default. */
+  }
+}
