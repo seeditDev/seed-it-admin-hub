@@ -14,7 +14,7 @@ import {
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { getDb, getSecondaryAuth, releaseSecondaryApp } from "@/lib/firebase";
 import type { AppUser, Role } from "@/types/seedit";
-import { sanitizeEmailKey } from "@/types/seedit";
+import { normaliseYear, sanitizeEmailKey, YEAR_RANGE_HINT, yearToCohortCode } from "@/types/seedit";
 
 const USERS = "users";
 const BATCH_LIMIT = 400;
