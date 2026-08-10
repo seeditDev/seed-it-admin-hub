@@ -54,14 +54,19 @@ import {
 } from "@/lib/firestore/tenants";
 import { listAllUsers } from "@/lib/firestore/users";
 import {
+  ALLOWED_YEARS,
   DEFAULT_TENANT_SETTINGS,
   DEPARTMENTS,
+  YEAR_RANGE_HINT,
+  normaliseYear,
   slugify,
+  yearToCohortCode,
   type Cohort,
   type ProctorMode,
   type Tenant,
   type TenantSettings,
 } from "@/types/seedit";
+
 
 export const Route = createFileRoute("/_portal/colleges")({
   head: () => ({
