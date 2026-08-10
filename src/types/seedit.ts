@@ -45,9 +45,11 @@ export interface AppUser {
   department?: string | undefined;
   rollNumber?: string | undefined;
   premium: boolean;
+  active?: boolean | undefined;
   createdAt?: Timestamp | null | undefined;
   lastLoginAt?: Timestamp | null | undefined;
 }
+
 
 export interface ProctorConfig {
   enabled: boolean;
