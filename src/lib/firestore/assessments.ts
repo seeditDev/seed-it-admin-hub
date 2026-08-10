@@ -52,7 +52,9 @@ function normaliseTargeting(raw: unknown, fallbackTenant: string): AssessmentTar
       : [];
   const years = (Array.isArray(t['years']) ? (t['years'] as unknown[]) : [])
     .map((y) => normaliseYear(y))
-    .filter((y): y is string => Boolean(y));
+    .filter((y): y is NonNullable<ReturnType<typeof normaliseYear>> => y !== null)
+    .map((y) => String(y));
+
   return {
     tenantIds,
     years,
