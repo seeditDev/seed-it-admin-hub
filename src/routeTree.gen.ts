@@ -19,6 +19,7 @@ import { Route as PortalMcqCreatorRouteImport } from './routes/_portal/mcq-creat
 import { Route as PortalReportsRouteImport } from './routes/_portal/reports'
 import { Route as PortalSeaCreatorRouteImport } from './routes/_portal/sea-creator'
 import { Route as PortalStaffManagementRouteImport } from './routes/_portal/staff-management'
+import { Route as PortalStudentsRouteImport } from './routes/_portal/students'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -69,6 +70,11 @@ const PortalStaffManagementRoute = PortalStaffManagementRouteImport.update({
   path: '/staff-management',
   getParentRoute: () => PortalRoute,
 } as any)
+const PortalStudentsRoute = PortalStudentsRouteImport.update({
+  id: '/students',
+  path: '/students',
+  getParentRoute: () => PortalRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -80,6 +86,7 @@ export interface FileRoutesByFullPath {
   '/reports': typeof PortalReportsRoute
   '/sea-creator': typeof PortalSeaCreatorRoute
   '/staff-management': typeof PortalStaffManagementRoute
+  '/students': typeof PortalStudentsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -91,6 +98,7 @@ export interface FileRoutesByTo {
   '/reports': typeof PortalReportsRoute
   '/sea-creator': typeof PortalSeaCreatorRoute
   '/staff-management': typeof PortalStaffManagementRoute
+  '/students': typeof PortalStudentsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -104,6 +112,7 @@ export interface FileRoutesById {
   '/_portal/reports': typeof PortalReportsRoute
   '/_portal/sea-creator': typeof PortalSeaCreatorRoute
   '/_portal/staff-management': typeof PortalStaffManagementRoute
+  '/_portal/students': typeof PortalStudentsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -117,6 +126,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/sea-creator'
     | '/staff-management'
+    | '/students'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -128,6 +138,7 @@ export interface FileRouteTypes {
     | '/reports'
     | '/sea-creator'
     | '/staff-management'
+    | '/students'
   id:
     | '__root__'
     | '/'
@@ -140,6 +151,7 @@ export interface FileRouteTypes {
     | '/_portal/reports'
     | '/_portal/sea-creator'
     | '/_portal/staff-management'
+    | '/_portal/students'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -219,6 +231,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PortalStaffManagementRouteImport
       parentRoute: typeof PortalRoute
     }
+    '/_portal/students': {
+      id: '/_portal/students'
+      path: '/students'
+      fullPath: '/students'
+      preLoaderRoute: typeof PortalStudentsRouteImport
+      parentRoute: typeof PortalRoute
+    }
   }
 }
 
@@ -231,6 +250,7 @@ interface PortalRouteChildren {
   PortalReportsRoute: typeof PortalReportsRoute
   PortalSeaCreatorRoute: typeof PortalSeaCreatorRoute
   PortalStaffManagementRoute: typeof PortalStaffManagementRoute
+  PortalStudentsRoute: typeof PortalStudentsRoute
 }
 
 const PortalRouteChildren: PortalRouteChildren = {
@@ -242,6 +262,7 @@ const PortalRouteChildren: PortalRouteChildren = {
   PortalReportsRoute: PortalReportsRoute,
   PortalSeaCreatorRoute: PortalSeaCreatorRoute,
   PortalStaffManagementRoute: PortalStaffManagementRoute,
+  PortalStudentsRoute: PortalStudentsRoute,
 }
 
 const PortalRouteWithChildren =

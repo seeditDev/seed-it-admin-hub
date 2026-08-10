@@ -200,7 +200,7 @@ function StudentsPage() {
   });
 
   const saveStudent = useMutation({
-    mutationFn: async (payload: { uid?: string; input: StudentInput }) => {
+    mutationFn: async (payload: { uid?: string | undefined; input: StudentInput }) => {
       if (payload.uid) {
         const { email: _e, password: _p, ...patch } = payload.input;
         await updateStudent(payload.uid, patch);
@@ -928,7 +928,7 @@ function StudentDialog({
           <div className="space-y-2">
             <Label>Cohort</Label>
             <Select
-              value={form.cohortId || undefined}
+              value={form.cohortId}
               onValueChange={(v) => {
                 set("cohortId", v);
                 if (!form.year) set("year", v.split("-")[0] ?? v);
@@ -964,7 +964,7 @@ function StudentDialog({
           </div>
           <div className="space-y-2">
             <Label>Department</Label>
-            <Select value={form.department || undefined} onValueChange={(v) => set("department", v)}>
+            <Select value={form.department} onValueChange={(v) => set("department", v)}>
               <SelectTrigger className="rounded-xl">
                 <SelectValue placeholder="Select department" />
               </SelectTrigger>
