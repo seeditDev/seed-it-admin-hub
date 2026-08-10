@@ -74,7 +74,24 @@ export interface Assessment {
   proctorConfig: ProctorConfig;
 }
 
-export const DEPARTMENTS = ["CSE", "ECE", "IT", "MECH", "EEE", "CIVIL", "AIDS", "CSBS"] as const;
+/** Full department catalogue used across cohorts, rosters and Excel imports. */
+export const DEPARTMENTS = [
+  "CSE",
+  "IT",
+  "ECE",
+  "EEE",
+  "MECH",
+  "CIVIL",
+  "AIDS",
+  "AIML",
+  "CSBS",
+  "CSD",
+  "MECHATRONICS",
+  "CYBER",
+  "IOT",
+  "CLOUD",
+  "ETC",
+] as const;
 
 export const DEFAULT_TENANT_SETTINGS: TenantSettings = {
   gracePeriodSeconds: 900,
