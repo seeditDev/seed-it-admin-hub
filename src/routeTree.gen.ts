@@ -10,33 +10,129 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as PortalRouteImport } from './routes/_portal'
+import { Route as PortalAssignModulesRouteImport } from './routes/_portal/assign-modules'
+import { Route as PortalCodingCreatorRouteImport } from './routes/_portal/coding-creator'
+import { Route as PortalDashboardRouteImport } from './routes/_portal/dashboard'
+import { Route as PortalMcqCreatorRouteImport } from './routes/_portal/mcq-creator'
+import { Route as PortalReportsRouteImport } from './routes/_portal/reports'
+import { Route as PortalSeaCreatorRouteImport } from './routes/_portal/sea-creator'
+import { Route as PortalStaffManagementRouteImport } from './routes/_portal/staff-management'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PortalRoute = PortalRouteImport.update({
+  id: '/_portal',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PortalAssignModulesRoute = PortalAssignModulesRouteImport.update({
+  id: '/assign-modules',
+  path: '/assign-modules',
+  getParentRoute: () => PortalRoute,
+} as any)
+const PortalCodingCreatorRoute = PortalCodingCreatorRouteImport.update({
+  id: '/coding-creator',
+  path: '/coding-creator',
+  getParentRoute: () => PortalRoute,
+} as any)
+const PortalDashboardRoute = PortalDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => PortalRoute,
+} as any)
+const PortalMcqCreatorRoute = PortalMcqCreatorRouteImport.update({
+  id: '/mcq-creator',
+  path: '/mcq-creator',
+  getParentRoute: () => PortalRoute,
+} as any)
+const PortalReportsRoute = PortalReportsRouteImport.update({
+  id: '/reports',
+  path: '/reports',
+  getParentRoute: () => PortalRoute,
+} as any)
+const PortalSeaCreatorRoute = PortalSeaCreatorRouteImport.update({
+  id: '/sea-creator',
+  path: '/sea-creator',
+  getParentRoute: () => PortalRoute,
+} as any)
+const PortalStaffManagementRoute = PortalStaffManagementRouteImport.update({
+  id: '/staff-management',
+  path: '/staff-management',
+  getParentRoute: () => PortalRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/assign-modules': typeof PortalAssignModulesRoute
+  '/coding-creator': typeof PortalCodingCreatorRoute
+  '/dashboard': typeof PortalDashboardRoute
+  '/mcq-creator': typeof PortalMcqCreatorRoute
+  '/reports': typeof PortalReportsRoute
+  '/sea-creator': typeof PortalSeaCreatorRoute
+  '/staff-management': typeof PortalStaffManagementRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/assign-modules': typeof PortalAssignModulesRoute
+  '/coding-creator': typeof PortalCodingCreatorRoute
+  '/dashboard': typeof PortalDashboardRoute
+  '/mcq-creator': typeof PortalMcqCreatorRoute
+  '/reports': typeof PortalReportsRoute
+  '/sea-creator': typeof PortalSeaCreatorRoute
+  '/staff-management': typeof PortalStaffManagementRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_portal': typeof PortalRouteWithChildren
+  '/_portal/assign-modules': typeof PortalAssignModulesRoute
+  '/_portal/coding-creator': typeof PortalCodingCreatorRoute
+  '/_portal/dashboard': typeof PortalDashboardRoute
+  '/_portal/mcq-creator': typeof PortalMcqCreatorRoute
+  '/_portal/reports': typeof PortalReportsRoute
+  '/_portal/sea-creator': typeof PortalSeaCreatorRoute
+  '/_portal/staff-management': typeof PortalStaffManagementRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/assign-modules'
+    | '/coding-creator'
+    | '/dashboard'
+    | '/mcq-creator'
+    | '/reports'
+    | '/sea-creator'
+    | '/staff-management'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/assign-modules'
+    | '/coding-creator'
+    | '/dashboard'
+    | '/mcq-creator'
+    | '/reports'
+    | '/sea-creator'
+    | '/staff-management'
+  id:
+    | '__root__'
+    | '/'
+    | '/_portal'
+    | '/_portal/assign-modules'
+    | '/_portal/coding-creator'
+    | '/_portal/dashboard'
+    | '/_portal/mcq-creator'
+    | '/_portal/reports'
+    | '/_portal/sea-creator'
+    | '/_portal/staff-management'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  PortalRoute: typeof PortalRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -48,22 +144,92 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_portal': {
+      id: '/_portal'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof PortalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_portal/assign-modules': {
+      id: '/_portal/assign-modules'
+      path: '/assign-modules'
+      fullPath: '/assign-modules'
+      preLoaderRoute: typeof PortalAssignModulesRouteImport
+      parentRoute: typeof PortalRoute
+    }
+    '/_portal/coding-creator': {
+      id: '/_portal/coding-creator'
+      path: '/coding-creator'
+      fullPath: '/coding-creator'
+      preLoaderRoute: typeof PortalCodingCreatorRouteImport
+      parentRoute: typeof PortalRoute
+    }
+    '/_portal/dashboard': {
+      id: '/_portal/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof PortalDashboardRouteImport
+      parentRoute: typeof PortalRoute
+    }
+    '/_portal/mcq-creator': {
+      id: '/_portal/mcq-creator'
+      path: '/mcq-creator'
+      fullPath: '/mcq-creator'
+      preLoaderRoute: typeof PortalMcqCreatorRouteImport
+      parentRoute: typeof PortalRoute
+    }
+    '/_portal/reports': {
+      id: '/_portal/reports'
+      path: '/reports'
+      fullPath: '/reports'
+      preLoaderRoute: typeof PortalReportsRouteImport
+      parentRoute: typeof PortalRoute
+    }
+    '/_portal/sea-creator': {
+      id: '/_portal/sea-creator'
+      path: '/sea-creator'
+      fullPath: '/sea-creator'
+      preLoaderRoute: typeof PortalSeaCreatorRouteImport
+      parentRoute: typeof PortalRoute
+    }
+    '/_portal/staff-management': {
+      id: '/_portal/staff-management'
+      path: '/staff-management'
+      fullPath: '/staff-management'
+      preLoaderRoute: typeof PortalStaffManagementRouteImport
+      parentRoute: typeof PortalRoute
+    }
   }
 }
 
+interface PortalRouteChildren {
+  PortalAssignModulesRoute: typeof PortalAssignModulesRoute
+  PortalCodingCreatorRoute: typeof PortalCodingCreatorRoute
+  PortalDashboardRoute: typeof PortalDashboardRoute
+  PortalMcqCreatorRoute: typeof PortalMcqCreatorRoute
+  PortalReportsRoute: typeof PortalReportsRoute
+  PortalSeaCreatorRoute: typeof PortalSeaCreatorRoute
+  PortalStaffManagementRoute: typeof PortalStaffManagementRoute
+}
+
+const PortalRouteChildren: PortalRouteChildren = {
+  PortalAssignModulesRoute: PortalAssignModulesRoute,
+  PortalCodingCreatorRoute: PortalCodingCreatorRoute,
+  PortalDashboardRoute: PortalDashboardRoute,
+  PortalMcqCreatorRoute: PortalMcqCreatorRoute,
+  PortalReportsRoute: PortalReportsRoute,
+  PortalSeaCreatorRoute: PortalSeaCreatorRoute,
+  PortalStaffManagementRoute: PortalStaffManagementRoute,
+}
+
+const PortalRouteWithChildren =
+  PortalRoute._addFileChildren(PortalRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  PortalRoute: PortalRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
