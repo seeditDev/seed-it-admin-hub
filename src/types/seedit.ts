@@ -45,9 +45,11 @@ export interface AppUser {
   department?: string | undefined;
   rollNumber?: string | undefined;
   premium: boolean;
+  active?: boolean | undefined;
   createdAt?: Timestamp | null | undefined;
   lastLoginAt?: Timestamp | null | undefined;
 }
+
 
 export interface ProctorConfig {
   enabled: boolean;
@@ -119,4 +121,131 @@ export function slugify(value: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
+}
+
+/* ------------------------------------------------------------------ *
+ * Academic year constraint — the platform only operates on 2027-2032 *
+ * ------------------------------------------------------------------ */
+
+export const ALLOWED_YEARS = ["2027", "2028", "2029", "2030", "2031", "2032"] as const;
+export type AllowedYear = (typeof ALLOWED_YEARS)[number];
+
+/** Cohort codes mirroring ALLOWED_YEARS: 2027 -> 2K27 */
+export const ALLOWED_COHORT_CODES = ALLOWED_YEARS.map((y) => `2K${y.slice(2)}`) as unknown as readonly string[];
+
+export const YEAR_RANGE_HINT = "Academic year must be between 2027 and 2032";
+
+/** Accepts 2027, "2027", "2K27", "2k27", "AY2027" and returns the canonical "2027" or null. */
+export function normaliseYear(raw: unknown): AllowedYear | null {
+  const text = String(raw ?? "").trim().toUpperCase();
+  if (!text) return null;
+  const compact = text.replace(/[^0-9K]/g, "");
+  const short = compact.match(/^2K(\d{2})$/);
+  const full = compact.match(/(20\d{2})/);
+  const candidate = short ? `20${short[1]}` : (full?.[1] ?? "");
+  return (ALLOWED_YEARS as readonly string[]).includes(candidate) ? (candidate as AllowedYear) : null;
+}
+
+export function isAllowedYear(raw: unknown): boolean {
+  return normaliseYear(raw) !== null;
+}
+
+/** "2027" -> "2K27" */
+export function yearToCohortCode(year: string): string {
+  const norm = normaliseYear(year);
+  return norm ? `2K${norm.slice(2)}` : year;
+}
+
+/* ------------------------------- Authoring ------------------------------- */
+
+export const DIFFICULTIES = ["easy", "medium", "hard"] as const;
+export type Difficulty = (typeof DIFFICULTIES)[number];
+
+export const CODING_LANGUAGES = ["c", "cpp", "java", "python"] as const;
+export type CodingLanguage = (typeof CODING_LANGUAGES)[number];
+
+export const LANGUAGE_LABELS: Record<CodingLanguage, string> = {
+  c: "C",
+  cpp: "C++",
+  java: "Java",
+  python: "Python",
+};
+
+export interface McqQuestion {
+  id: string;
+  text: string;
+  options: string[];
+  correctIndex: number;
+  explanation?: string | undefined;
+  difficulty: Difficulty;
+  marks: number;
+}
+
+export interface TestCase {
+  id: string;
+  input: string;
+  expectedOutput: string;
+  hidden: boolean;
+  points: number;
+}
+
+export interface CodingProblem {
+  statement: string;
+  inputFormat: string;
+  outputFormat: string;
+  constraints: string;
+  memoryLimitMb: number;
+  timeLimitSeconds: number;
+  languages: CodingLanguage[];
+  blockCopyPaste: boolean;
+  fullScreenLock: boolean;
+  testCases: TestCase[];
+}
+
+export interface SeaPrompt {
+  id: string;
+  prompt: string;
+  referenceTranscript?: string | undefined;
+  keywords: string[];
+  minSeconds: number;
+  maxSeconds: number;
+  retakesAllowed: number;
+}
+
+export interface SeaRubric {
+  fluencyWeight: number;
+  pronunciationWeight: number;
+  grammarWeight: number;
+  keywordWeight: number;
+  passThreshold: number;
+}
+
+/** Targeting shared by every authoring module. */
+export interface AssessmentTargeting {
+  tenantIds: string[];
+  years: string[];
+  departments: string[];
+}
+
+export const DEFAULT_TARGETING: AssessmentTargeting = {
+  tenantIds: [],
+  years: [],
+  departments: [],
+};
+
+export interface ProctorEventRow {
+  id: string;
+  attemptId: string;
+  assessmentId: string;
+  assessmentTitle: string;
+  userId: string;
+  email: string;
+  displayName: string;
+  tenantId: string;
+  year: string;
+  department: string;
+  type: string;
+  severity: "low" | "medium" | "high";
+  detail: string;
+  at: Date | null;
 }

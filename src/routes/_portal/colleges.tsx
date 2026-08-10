@@ -54,14 +54,19 @@ import {
 } from "@/lib/firestore/tenants";
 import { listAllUsers } from "@/lib/firestore/users";
 import {
+  ALLOWED_YEARS,
   DEFAULT_TENANT_SETTINGS,
   DEPARTMENTS,
+  YEAR_RANGE_HINT,
+  normaliseYear,
   slugify,
+  yearToCohortCode,
   type Cohort,
   type ProctorMode,
   type Tenant,
   type TenantSettings,
 } from "@/types/seedit";
+
 
 export const Route = createFileRoute("/_portal/colleges")({
   head: () => ({
@@ -635,33 +640,43 @@ function CollegesPage() {
               <DialogHeader>
                 <DialogTitle>{cohortDraft.isNew ? "Add cohort" : "Edit cohort"}</DialogTitle>
                 <DialogDescription>
-                  A cohort groups an academic year with its departments, e.g. 2K22 - CSE, ECE, IT.
+                  A cohort groups an academic year with its departments, e.g. 2K27 - CSE, ECE, IT.
                 </DialogDescription>
               </DialogHeader>
 
               <div className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="cohort-year">Academic year</Label>
-                    <Input
-                      id="cohort-year"
-                      className="rounded-xl font-mono"
-                      placeholder="2K22"
+                    <Label>Academic year</Label>
+                    <Select
                       value={cohortDraft.year}
-                      onChange={(e) => {
-                        const year = e.target.value.toUpperCase().replace(/\s+/g, "");
+                      onValueChange={(year) =>
                         setCohortDraft((prev) =>
-                          prev ? { ...prev, year, ...(prev.isNew ? { id: year } : {}) } : prev,
-                        );
-                      }}
-                    />
+                          prev
+                            ? { ...prev, year, ...(prev.isNew ? { id: yearToCohortCode(year) } : {}) }
+                            : prev,
+                        )
+                      }
+                    >
+                      <SelectTrigger className="rounded-xl font-mono" aria-label="Academic year">
+                        <SelectValue placeholder="Select year" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ALLOWED_YEARS.map((y) => (
+                          <SelectItem key={y} value={y} className="font-mono">
+                            {y} ({yearToCohortCode(y)})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">{YEAR_RANGE_HINT}.</p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="cohort-id">Cohort ID</Label>
                     <Input
                       id="cohort-id"
                       className="rounded-xl font-mono"
-                      placeholder="2K22 or 2K22-CSE"
+                      placeholder="2K27 or 2K27-CSE"
                       disabled={!cohortDraft.isNew}
                       value={cohortDraft.id}
                       onChange={(e) =>
@@ -757,7 +772,7 @@ function CollegesPage() {
                 </Button>
                 <Button
                   className="rounded-xl"
-                  disabled={saveCohort.isPending || !cohortDraft.id.trim() || !cohortDraft.year.trim()}
+                  disabled={saveCohort.isPending || !cohortDraft.id.trim() || !normaliseYear(cohortDraft.year)}
                   onClick={() => {
                     const label =
                       cohortDraft.label.trim() ||

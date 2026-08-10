@@ -14,7 +14,7 @@ import {
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { getDb, getSecondaryAuth, releaseSecondaryApp } from "@/lib/firebase";
 import type { AppUser, Role } from "@/types/seedit";
-import { sanitizeEmailKey } from "@/types/seedit";
+import { normaliseYear, sanitizeEmailKey, YEAR_RANGE_HINT, yearToCohortCode } from "@/types/seedit";
 
 const USERS = "users";
 const BATCH_LIMIT = 400;
@@ -88,6 +88,24 @@ export interface StudentInput {
   role?: Role;
 }
 
+function friendlyAuthError(err: unknown): string {
+  const code = (err as { code?: string }).code ?? "";
+  switch (code) {
+    case "auth/operation-not-allowed":
+      return "Email/password sign-in is disabled for this Firebase project. Enable it under Authentication → Sign-in method.";
+    case "auth/invalid-email":
+      return "That email address is not valid.";
+    case "auth/weak-password":
+      return "Password must be at least 6 characters.";
+    case "auth/network-request-failed":
+      return "Network error while creating the credential. Check the connection and retry.";
+    case "permission-denied":
+      return "Firestore rejected the write. Publish firestore.rules from the repo root so admins can manage users.";
+    default:
+      return (err as { message?: string }).message || "Could not provision this account.";
+  }
+}
+
 /**
  * Provision one account through the isolated secondary auth app so the
  * signed-in admin session is never replaced.
@@ -97,7 +115,20 @@ export async function provisionAccount(
   opts: { keepSecondaryAlive?: boolean } = {},
 ): Promise<{ uid: string; authCreated: boolean }> {
   const email = input.email.trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error("A valid email address is required.");
+  if (!input.displayName.trim()) throw new Error("Full name is required.");
+  if (!input.tenantId.trim()) throw new Error("Select a college tenant first.");
+
+  const role: Role = input.role ?? "student";
+  if (role === "student") {
+    const year = normaliseYear(input.year || input.cohortId);
+    if (!year) throw new Error(`${YEAR_RANGE_HINT} (received "${input.year || input.cohortId || "empty"}").`);
+    input = { ...input, year, cohortId: input.cohortId || yearToCohortCode(year) };
+  }
+
   const password = input.password?.trim() || "Seedit@123";
+  if (password.length < 6) throw new Error("Password must be at least 6 characters.");
+
   let uid = sanitizeEmailKey(email);
   let authCreated = false;
 
@@ -107,34 +138,40 @@ export async function provisionAccount(
     authCreated = true;
   } catch (err) {
     const code = (err as { code?: string }).code ?? "";
-    if (code !== "auth/email-already-in-use") throw err;
     // Credential already exists — keep the Firestore profile in sync under the email key.
+    if (code !== "auth/email-already-in-use") throw new Error(friendlyAuthError(err));
   } finally {
     if (!opts.keepSecondaryAlive) await releaseSecondaryApp();
   }
 
-  await setDoc(
-    doc(getDb(), USERS, uid),
-    {
-      uid,
-      email,
-      displayName: input.displayName,
-      role: input.role ?? "student",
-      tenantId: input.tenantId,
-      cohortId: input.cohortId,
-      college: input.college,
-      year: input.year,
-      department: input.department,
-      rollNumber: input.rollNumber,
-      premium: input.premium,
-      createdAt: serverTimestamp(),
-      lastLoginAt: null,
-    },
-    { merge: true },
-  );
+  try {
+    await setDoc(
+      doc(getDb(), USERS, uid),
+      {
+        uid,
+        email,
+        displayName: input.displayName.trim(),
+        role,
+        tenantId: input.tenantId,
+        cohortId: input.cohortId,
+        college: input.college,
+        year: input.year,
+        department: input.department,
+        rollNumber: input.rollNumber,
+        premium: input.premium,
+        active: true,
+        createdAt: serverTimestamp(),
+        lastLoginAt: null,
+      },
+      { merge: true },
+    );
+  } catch (err) {
+    throw new Error(friendlyAuthError(err));
+  }
 
   return { uid, authCreated };
 }
+
 
 export async function updateStudent(uid: string, patch: Partial<AppUser>): Promise<void> {
   const clean: Record<string, unknown> = {};
