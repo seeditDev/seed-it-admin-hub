@@ -96,10 +96,18 @@ interface UploadOutcome {
 }
 
 const HEADER_ALIASES: Record<keyof StudentInput | "password", string[]> = {
-  email: ["email", "emailid", "mailid", "email address"],
+  email: ["email", "emailid", "mailid", "email address", "mail", "mail id", "e-mail"],
   password: ["password", "pwd", "passcode"],
   displayName: ["name", "displayname", "student name", "fullname", "full name"],
-  rollNumber: ["rollnumber", "rollno", "roll number", "registerno", "register number", "regno"],
+  rollNumber: [
+    "rollnumber",
+    "rollno",
+    "roll number",
+    "registerno",
+    "register number",
+    "regno",
+    "universityno",
+  ],
   tenantId: ["tenantid", "tenant", "collegecode", "college code"],
   college: ["college", "collegename", "college name", "institution"],
   cohortId: ["cohortid", "cohort", "batch"],
