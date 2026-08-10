@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as PortalRouteImport } from './routes/_portal'
 import { Route as PortalAssignModulesRouteImport } from './routes/_portal/assign-modules'
 import { Route as PortalCodingCreatorRouteImport } from './routes/_portal/coding-creator'
+import { Route as PortalCollegesRouteImport } from './routes/_portal/colleges'
 import { Route as PortalDashboardRouteImport } from './routes/_portal/dashboard'
 import { Route as PortalMcqCreatorRouteImport } from './routes/_portal/mcq-creator'
 import { Route as PortalReportsRouteImport } from './routes/_portal/reports'
@@ -36,6 +37,11 @@ const PortalAssignModulesRoute = PortalAssignModulesRouteImport.update({
 const PortalCodingCreatorRoute = PortalCodingCreatorRouteImport.update({
   id: '/coding-creator',
   path: '/coding-creator',
+  getParentRoute: () => PortalRoute,
+} as any)
+const PortalCollegesRoute = PortalCollegesRouteImport.update({
+  id: '/colleges',
+  path: '/colleges',
   getParentRoute: () => PortalRoute,
 } as any)
 const PortalDashboardRoute = PortalDashboardRouteImport.update({
@@ -68,6 +74,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/assign-modules': typeof PortalAssignModulesRoute
   '/coding-creator': typeof PortalCodingCreatorRoute
+  '/colleges': typeof PortalCollegesRoute
   '/dashboard': typeof PortalDashboardRoute
   '/mcq-creator': typeof PortalMcqCreatorRoute
   '/reports': typeof PortalReportsRoute
@@ -78,6 +85,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/assign-modules': typeof PortalAssignModulesRoute
   '/coding-creator': typeof PortalCodingCreatorRoute
+  '/colleges': typeof PortalCollegesRoute
   '/dashboard': typeof PortalDashboardRoute
   '/mcq-creator': typeof PortalMcqCreatorRoute
   '/reports': typeof PortalReportsRoute
@@ -90,6 +98,7 @@ export interface FileRoutesById {
   '/_portal': typeof PortalRouteWithChildren
   '/_portal/assign-modules': typeof PortalAssignModulesRoute
   '/_portal/coding-creator': typeof PortalCodingCreatorRoute
+  '/_portal/colleges': typeof PortalCollegesRoute
   '/_portal/dashboard': typeof PortalDashboardRoute
   '/_portal/mcq-creator': typeof PortalMcqCreatorRoute
   '/_portal/reports': typeof PortalReportsRoute
@@ -102,6 +111,7 @@ export interface FileRouteTypes {
     | '/'
     | '/assign-modules'
     | '/coding-creator'
+    | '/colleges'
     | '/dashboard'
     | '/mcq-creator'
     | '/reports'
@@ -112,6 +122,7 @@ export interface FileRouteTypes {
     | '/'
     | '/assign-modules'
     | '/coding-creator'
+    | '/colleges'
     | '/dashboard'
     | '/mcq-creator'
     | '/reports'
@@ -123,6 +134,7 @@ export interface FileRouteTypes {
     | '/_portal'
     | '/_portal/assign-modules'
     | '/_portal/coding-creator'
+    | '/_portal/colleges'
     | '/_portal/dashboard'
     | '/_portal/mcq-creator'
     | '/_portal/reports'
@@ -163,6 +175,13 @@ declare module '@tanstack/react-router' {
       path: '/coding-creator'
       fullPath: '/coding-creator'
       preLoaderRoute: typeof PortalCodingCreatorRouteImport
+      parentRoute: typeof PortalRoute
+    }
+    '/_portal/colleges': {
+      id: '/_portal/colleges'
+      path: '/colleges'
+      fullPath: '/colleges'
+      preLoaderRoute: typeof PortalCollegesRouteImport
       parentRoute: typeof PortalRoute
     }
     '/_portal/dashboard': {
@@ -206,6 +225,7 @@ declare module '@tanstack/react-router' {
 interface PortalRouteChildren {
   PortalAssignModulesRoute: typeof PortalAssignModulesRoute
   PortalCodingCreatorRoute: typeof PortalCodingCreatorRoute
+  PortalCollegesRoute: typeof PortalCollegesRoute
   PortalDashboardRoute: typeof PortalDashboardRoute
   PortalMcqCreatorRoute: typeof PortalMcqCreatorRoute
   PortalReportsRoute: typeof PortalReportsRoute
@@ -216,6 +236,7 @@ interface PortalRouteChildren {
 const PortalRouteChildren: PortalRouteChildren = {
   PortalAssignModulesRoute: PortalAssignModulesRoute,
   PortalCodingCreatorRoute: PortalCodingCreatorRoute,
+  PortalCollegesRoute: PortalCollegesRoute,
   PortalDashboardRoute: PortalDashboardRoute,
   PortalMcqCreatorRoute: PortalMcqCreatorRoute,
   PortalReportsRoute: PortalReportsRoute,
@@ -233,3 +254,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
