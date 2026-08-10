@@ -60,7 +60,14 @@ import {
   updateStudent,
   type StudentInput,
 } from "@/lib/firestore/users";
-import { DEPARTMENTS, type AppUser } from "@/types/seedit";
+import {
+  ALLOWED_YEARS,
+  DEPARTMENTS,
+  YEAR_RANGE_HINT,
+  normaliseYear,
+  yearToCohortCode,
+  type AppUser,
+} from "@/types/seedit";
 import { useAuth } from "@/lib/auth-context";
 
 export const Route = createFileRoute("/_portal/students")({
@@ -290,7 +297,13 @@ function StudentsPage() {
         if (!row.tenantId) row.errors.push("Missing tenant ID");
         if (!row.password) row.password = DEFAULT_PASSWORD;
         if (!row.college) row.college = tenants.find((t) => t.id === row.tenantId)?.name ?? row.tenantId;
-        if (!row.cohortId && row.year) row.cohortId = row.year;
+        const normYear = normaliseYear(row.year || row.cohortId);
+        if (!normYear) {
+          row.errors.push(`${YEAR_RANGE_HINT} (row value: "${row.year || row.cohortId || "empty"}")`);
+        } else {
+          row.year = normYear;
+          if (!row.cohortId) row.cohortId = yearToCohortCode(normYear);
+        }
         return row;
       });
 
@@ -347,8 +360,8 @@ function StudentsPage() {
         RollNumber: "22CSE001",
         TenantID: tenants[0]?.id ?? "KITE",
         College: tenants[0]?.name ?? "KG Kite College",
-        CohortID: "2K22",
-        Year: "2K22",
+        CohortID: "2K27",
+        Year: "2027",
         Department: "CSE",
         Premium: "yes",
       },
@@ -939,7 +952,8 @@ function StudentDialog({
               value={form.cohortId}
               onValueChange={(v) => {
                 set("cohortId", v);
-                if (!form.year) set("year", v.split("-")[0] ?? v);
+                const y = normaliseYear(v);
+                if (y && !form.year) set("year", y);
               }}
             >
               <SelectTrigger className="rounded-xl">
@@ -961,14 +975,26 @@ function StudentDialog({
             </Select>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="s-year">Academic year</Label>
-            <Input
-              id="s-year"
-              className="rounded-xl font-mono"
-              placeholder="2K22"
+            <Label>Academic year</Label>
+            <Select
               value={form.year}
-              onChange={(e) => set("year", e.target.value.toUpperCase())}
-            />
+              onValueChange={(v) => {
+                set("year", v);
+                if (!form.cohortId) set("cohortId", yearToCohortCode(v));
+              }}
+            >
+              <SelectTrigger className="rounded-xl font-mono" aria-label="Academic year">
+                <SelectValue placeholder="Select year" />
+              </SelectTrigger>
+              <SelectContent>
+                {ALLOWED_YEARS.map((y) => (
+                  <SelectItem key={y} value={y} className="font-mono">
+                    {y} ({yearToCohortCode(y)})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">{YEAR_RANGE_HINT}.</p>
           </div>
           <div className="space-y-2">
             <Label>Department</Label>
@@ -1002,7 +1028,13 @@ function StudentDialog({
           </Button>
           <Button
             className="rounded-xl"
-            disabled={pending || !form.email.trim() || !form.displayName.trim() || !form.tenantId}
+            disabled={
+              pending ||
+              !form.email.trim() ||
+              !form.displayName.trim() ||
+              !form.tenantId ||
+              !normaliseYear(form.year)
+            }
             onClick={() => onSubmit(form, student?.uid)}
           >
             {pending ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
