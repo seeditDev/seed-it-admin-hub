@@ -90,22 +90,20 @@ export const Route = createFileRoute("/_portal/colleges")({
 const PROCTOR_MODES: ProctorMode[] = ["face+audio", "face", "audio", "off"];
 
 interface CollegeEntry { code: string; name: string; shortName: string; city: string; }
-interface SouthIndiaIndex { states: string[]; citiesByState: Record<string, string[]>; collegesByCity: Record<string, unknown[]>; }
+/** JSON structure: collegesMap[state][city] = [{code, name, shortName}] */
+interface SouthIndiaIndex { states: string[]; citiesByState: Record<string, string[]>; collegesMap: Record<string, Record<string, unknown[]>>; }
 
-/** Flatten the south_india_index.json into a flat list of {code, name, shortName, city}. */
+/** Flatten collegesMap into a flat list of {code, name, shortName, city}. */
 function flattenCollegeIndex(data: SouthIndiaIndex): CollegeEntry[] {
   const result: CollegeEntry[] = [];
-  if (!data?.collegesByCity) return result;
-  for (const [city, colleges] of Object.entries(data.collegesByCity)) {
-    for (const c of colleges) {
-      if (typeof c === "object" && c !== null) {
-        const entry = c as Record<string, string>;
-        if (entry['code']) result.push({ code: entry['code'], name: entry['name'] ?? entry['code'], shortName: entry['shortName'] ?? "", city });
-      } else if (typeof c === "string") {
-        const codeM = c.match(/code=([^;\s}]+)/);
-        const nameM = c.match(/name=([^;]+?)(?:;|})/);
-        const shortM = c.match(/shortName=([^;\s}]+)/);
-        if (codeM?.[1] && nameM?.[1]) result.push({ code: codeM[1].trim(), name: nameM[1].trim(), shortName: shortM?.[1]?.trim() ?? "", city });
+  if (!data?.collegesMap) return result;
+  for (const cityMap of Object.values(data.collegesMap)) {
+    for (const [city, colleges] of Object.entries(cityMap)) {
+      for (const c of colleges) {
+        if (typeof c === "object" && c !== null) {
+          const entry = c as Record<string, string>;
+          if (entry['code']) result.push({ code: entry['code'], name: entry['name'] ?? entry['code'], shortName: entry['shortName'] ?? "", city });
+        }
       }
     }
   }

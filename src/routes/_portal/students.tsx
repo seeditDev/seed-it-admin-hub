@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -128,14 +128,17 @@ const HEADER_ALIASES: Record<keyof StudentInput | "password", string[]> = {
 
 interface CollegeEntry { code: string; name: string; shortName: string; }
 
+/** JSON: collegesMap[state][city] = [{code, name, shortName}] */
 function flattenCollegeIndex(data: Record<string, unknown>): CollegeEntry[] {
-  const byCity = (data as { collegesByCity?: Record<string, unknown[]> }).collegesByCity ?? {};
+  const byState = (data as { collegesMap?: Record<string, Record<string, unknown[]>> }).collegesMap ?? {};
   const result: CollegeEntry[] = [];
-  for (const colleges of Object.values(byCity)) {
-    for (const c of colleges) {
-      if (typeof c === "object" && c !== null) {
-        const e = c as Record<string, string>;
-        if (e['code']) result.push({ code: e['code'], name: e['name'] ?? e['code'], shortName: e['shortName'] ?? "" });
+  for (const cityMap of Object.values(byState)) {
+    for (const colleges of Object.values(cityMap)) {
+      for (const c of colleges) {
+        if (typeof c === "object" && c !== null) {
+          const e = c as Record<string, string>;
+          if (e['code']) result.push({ code: e['code'], name: e['name'] ?? e['code'], shortName: e['shortName'] ?? "" });
+        }
       }
     }
   }
@@ -180,12 +183,12 @@ function StudentsPage() {
   const [importCollegeSuggestions, setImportCollegeSuggestions] = useState<CollegeEntry[]>([]);
   const [importCollege, setImportCollege] = useState<CollegeEntry | null>(null);
 
-  // Load college index once
-  useState(() => {
+  // Load college index once on mount
+  useEffect(() => {
     fetch("/south_india_index.json").then(r => r.json()).then((data: Record<string, unknown>) => {
       setAllImportColleges(flattenCollegeIndex(data));
     }).catch(() => {});
-  });
+  }, []);
 
   const tenantsQ = useQuery({ queryKey: ["tenants"], queryFn: listTenants });
   const usersQ = useQuery({ queryKey: ["users", "all"], queryFn: listAllUsers });
