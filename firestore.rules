@@ -1,4 +1,4 @@
-﻿rules_version = '2';
+rules_version = '2';
 
 // ════════════════════════════════════════════════════════════════════════════
 // SEED-IT Platform — Master Firestore Security Rules
@@ -81,20 +81,20 @@ service cloud.firestore {
     // ════════════════════════════════════════════════════════════════════════
 
     match /users/{userId} {
-      allow get: if isSignedIn() && (request.auth.uid == userId || isPortal());
+      allow get: if isUser(userId) || isPortal();
       allow list: if isPortal();
 
       allow create: if isAdmin()
         || (isStaff()
             && request.resource.data.role == 'student'
             && request.resource.data.tenantId == myTenant())
-        || (isSignedIn() && request.auth.uid == userId
+        || (isUser(userId)
             && request.resource.data.role == 'student');
 
       allow update: if isAdmin()
         || (isStaff() && tenantAllowed(resource.data.tenantId)
             && request.resource.data.role == resource.data.role)
-        || (isSignedIn() && request.auth.uid == userId
+        || (isUser(userId)
             && request.resource.data.role     == resource.data.role
             && request.resource.data.tenantId == resource.data.tenantId
             && request.resource.data.get('premium', false) == resource.data.get('premium', false));
@@ -118,6 +118,10 @@ service cloud.firestore {
       }
     }
 
+    match /codingProgress/{uid} {
+      allow read, write: if isSignedIn() && (isUser(uid) || isStaffOrAdmin());
+    }
+
     // ════════════════════════════════════════════════════════════════════════
     // CollectionGroup: contestAttempts & multiSectionAttempts
     //
@@ -130,14 +134,15 @@ service cloud.firestore {
     // ════════════════════════════════════════════════════════════════════════
 
     match /{path=**}/contestAttempts/{attemptId} {
-      allow read: if isStaffOrAdmin() || (isSignedIn() && path[1] == request.auth.uid);
+      allow read: if isStaffOrAdmin() || (isSignedIn() && isUser(path[1]));
       allow write: if isSignedIn();
     }
 
     match /{path=**}/multiSectionAttempts/{attemptId} {
-      allow read: if isStaffOrAdmin() || (isSignedIn() && path[1] == request.auth.uid);
+      allow read: if isStaffOrAdmin() || (isSignedIn() && isUser(path[1]));
       allow write: if isSignedIn();
     }
+
 
     // ════════════════════════════════════════════════════════════════════════
     // 2. Tenants & Cohorts
