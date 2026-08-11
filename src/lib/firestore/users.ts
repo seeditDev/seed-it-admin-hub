@@ -145,22 +145,38 @@ export async function provisionAccount(
   }
 
   try {
+    // Derive final cohortId and numeric year unambiguously before writing
+    const finalYear     = normaliseYear(input.year || input.cohortId) || input.year || '';
+    const finalCohortId = input.cohortId || (finalYear ? yearToCohortCode(finalYear) : '');
+    // College name (human-readable) and code (Firestore key = tenantId)
+    const collegeName   = input.college || '';
+    const collegeCode   = input.tenantId;
+
     await setDoc(
       doc(getDb(), USERS, uid),
       {
+        // ── Identity ─────────────────────────────────────────────────
         uid,
         email,
         displayName: input.displayName.trim(),
+        rollNumber:  input.rollNumber,
         role,
-        tenantId: input.tenantId,
-        cohortId: input.cohortId,
-        college: input.college,
-        year: input.year,
-        department: input.department,
-        rollNumber: input.rollNumber,
-        premium: input.premium,
-        active: true,
-        createdAt: serverTimestamp(),
+        active:      true,
+
+        // ── Tenant / Cohort (primary fields, used by SEB buildAuthData) ──
+        tenantId:    collegeCode,     // college code e.g. "TN000026"
+        cohortId:    finalCohortId,   // e.g. "2K27"
+        year:        finalYear,       // numeric graduation year e.g. "2027"
+        department:  input.department,
+
+        // ── College name fields (redundant aliases — ensures SEB never needs derivation) ──
+        college:     collegeName,     // human-readable name
+        collegeName: collegeName,     // alias for legacy readers
+        collegeCode: collegeCode,     // alias = tenantId, for clarity
+
+        // ── Premium / timestamps ──────────────────────────────────────
+        premium:     input.premium,
+        createdAt:   serverTimestamp(),
         lastLoginAt: null,
       },
       { merge: true },
