@@ -144,6 +144,7 @@ function emptyCohortDraft(): CohortDraft {
     year: "",
     departments: [],
     allowedModules: [],
+    gateKey: "",
     batchStart: "",
     batchEnd: "",
     active: true,
@@ -852,6 +853,25 @@ function CollegesPage() {
                       }
                     />
                   </div>
+                </div>
+
+                {/* ── Guest Portal Gate Key ── */}
+                <div className="space-y-2">
+                  <Label htmlFor="cohort-gatekey">🔑 Guest Portal Gate Key <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                  <Input
+                    id="cohort-gatekey"
+                    className="rounded-xl font-mono tracking-widest"
+                    placeholder="e.g. SEED2K27 or leave blank for open access"
+                    value={cohortDraft.gateKey ?? ""}
+                    onChange={(e) =>
+                      setCohortDraft((prev) => (prev ? { ...prev, gateKey: e.target.value.trim() } : prev))
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Guests must enter this key to access <strong>this cohort's assessments only</strong>.
+                    Each cohort can have a unique key — guests are automatically scoped to this batch.
+                    Leave blank for open access.
+                  </p>
                 </div>
               </div>
 

@@ -34,6 +34,8 @@ export interface Cohort {
   year: string;
   departments: string[];
   allowedModules: string[];
+  /** Per-cohort gate key for the Guest Portal. Guests entering this key get exactly this cohort's assessments. */
+  gateKey?: string | undefined;
   batchStart?: string | undefined;
   batchEnd?: string | undefined;
   active?: boolean | undefined;
