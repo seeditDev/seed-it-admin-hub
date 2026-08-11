@@ -1,4 +1,4 @@
-rules_version = '2';
+﻿rules_version = '2';
 
 // ════════════════════════════════════════════════════════════════════════════
 // SEED-IT Platform — Master Firestore Security Rules
@@ -125,24 +125,61 @@ service cloud.firestore {
     // ════════════════════════════════════════════════════════════════════════
     // CollectionGroup: contestAttempts & multiSectionAttempts
     //
-    // REQUIRED for Live Assessment Monitor which runs:
-    //   collectionGroup(db, "contestAttempts") across ALL users
-    //   collectionGroup(db, "multiSectionAttempts") across ALL users
+    // REQUIRED for Live Assessment Monitor (collectionGroup queries).
+    // Firestore evaluates collectionGroup rules independently from the
+    // subcollection rules above — both must exist.
     //
-    // Firestore evaluates collectionGroup rules independently from
-    // the subcollection rules above — both must exist.
+    // FIX P0-3: write scoped to owning user (path[1] == uid) or portal.
+    // Any signed-in user can NO LONGER overwrite another student's attempt.
     // ════════════════════════════════════════════════════════════════════════
 
     match /{path=**}/contestAttempts/{attemptId} {
-      allow read: if isStaffOrAdmin() || (isSignedIn() && isUser(path[1]));
-      allow write: if isSignedIn();
+      allow read:  if isStaffOrAdmin() || (isSignedIn() && isUser(path[1]));
+      allow write: if (isSignedIn() && isUser(path[1])) || isStaffOrAdmin();
     }
 
     match /{path=**}/multiSectionAttempts/{attemptId} {
-      allow read: if isStaffOrAdmin() || (isSignedIn() && isUser(path[1]));
-      allow write: if isSignedIn();
+      allow read:  if isStaffOrAdmin() || (isSignedIn() && isUser(path[1]));
+      allow write: if (isSignedIn() && isUser(path[1])) || isStaffOrAdmin();
     }
 
+    // ════════════════════════════════════════════════════════════════════════
+    // CollectionGroup: assessmentResults students & guests
+    //
+    // FIX P0-4: results.ts uses collectionGroup("students") & ("guests").
+    // Without these wildcard rules, Firestore returns permission-denied even
+    // though the fixed-depth /assessmentResults/{id}/students/{uid} rule exists.
+    //
+    // FIX P0-5: Staff reads scoped to their tenant via tenantId field on doc.
+    // ════════════════════════════════════════════════════════════════════════
+
+    match /{path=**}/students/{userId} {
+      allow read: if isAdmin()
+        || (isStaff() && resource.data.get('tenantId', '') == myTenant())
+        || (isSignedIn() && request.auth.uid == userId);
+      allow create, update: if (isSignedIn() && request.auth.uid == userId) || isPortal();
+      allow delete: if isAdmin();
+    }
+
+    match /{path=**}/guests/{guestId} {
+      allow create: if true;
+      allow read:   if isPortal();
+      allow update, delete: if isPortal();
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // CollectionGroup: proctoring events
+    //
+    // FIX P0-4: proctoring.ts uses collectionGroup("events").
+    // Without this, Violations tab shows false "no data" (silent 403).
+    // ════════════════════════════════════════════════════════════════════════
+
+    match /{path=**}/events/{eventId} {
+      allow read:   if isPortal();
+      allow create: if isSignedIn();
+      allow update: if false;
+      allow delete: if isAdmin();
+    }
 
     // ════════════════════════════════════════════════════════════════════════
     // 2. Tenants & Cohorts
@@ -165,8 +202,7 @@ service cloud.firestore {
     // ════════════════════════════════════════════════════════════════════════
 
     match /assessments/{assessmentId} {
-      allow read: if isSignedIn();
-      allow read: if resource.data.guestEnabled == true;
+      allow read: if isSignedIn() || resource.data.guestEnabled == true;
       allow create, update, delete: if isPortal();
 
       match /{document=**} {
@@ -193,8 +229,8 @@ service cloud.firestore {
 
       match /guests/{guestId} {
         allow create: if true;
-        allow read:   if isStaffOrAdmin() || request.auth == null || request.auth != null;
-        allow update, delete: if isStaffOrAdmin();
+        allow read:   if isPortal();
+        allow update, delete: if isPortal();
       }
     }
 
@@ -229,7 +265,12 @@ service cloud.firestore {
 
     // ════════════════════════════════════════════════════════════════════════
     // 7. Courses / Series / Tests
-    //    courses/{courseId}/series/{seriesId}/tests/{testId}
+    //
+    // FIX P0-2: Removed `match /{path=**}/tests/{testId} { allow read: if true; }`
+    // That wildcard overrides all narrower rules via OR, exposing passkeys,
+    // targeting config and question banks to unauthenticated users.
+    //
+    // Replaced with a scoped collectionGroup rule: sign-in OR guestEnabled.
     // ════════════════════════════════════════════════════════════════════════
 
     match /courses/{courseId} {
@@ -252,9 +293,9 @@ service cloud.firestore {
       }
     }
 
-    // CollectionGroup: tests — findTestByCode (guest portal, unauthenticated)
+    // CollectionGroup: tests — scoped (was `if true`, now sign-in or guestEnabled)
     match /{path=**}/tests/{testId} {
-      allow read: if true;
+      allow read: if isSignedIn() || resource.data.guestEnabled == true;
     }
 
     // ════════════════════════════════════════════════════════════════════════
@@ -284,7 +325,7 @@ service cloud.firestore {
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    // 11. User Solutions (accepted + all submissions)
+    // 11. User Solutions
     //     userSolutions/{uid}/solutions/{questionId}
     //     userSolutions/{uid}/allSubmissions/{autoId}
     // ════════════════════════════════════════════════════════════════════════
@@ -332,12 +373,8 @@ service cloud.firestore {
 
     // ════════════════════════════════════════════════════════════════════════
     // 16. Tenant Courses — per-college test registry
-    //
     //   tenantCourses/{tenantId}/tests/{testId}
-    //
-    //   Public read: guest portal (unauthenticated) reads this to show
-    //   available assessments for a selected college without Firebase Auth.
-    //   Portal write: admin always; staff only for their tenant.
+    //   Public read for guest portal; write: admin or scoped staff.
     // ════════════════════════════════════════════════════════════════════════
 
     match /tenantCourses/{tenantId} {
@@ -353,7 +390,6 @@ service cloud.firestore {
 
     // ════════════════════════════════════════════════════════════════════════
     // 17. Guest Assessment Registry (legacy tenantAssessments)
-    //
     //   tenantAssessments/{tenantId}/guestTests/{testId}
     // ════════════════════════════════════════════════════════════════════════
 
@@ -370,7 +406,6 @@ service cloud.firestore {
 
     // ════════════════════════════════════════════════════════════════════════
     // 18. Tenant Results — denormalized per-college results
-    //
     //   tenantResults/{tenantId}/results/{autoId}
     // ════════════════════════════════════════════════════════════════════════
 

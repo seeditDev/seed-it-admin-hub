@@ -65,9 +65,17 @@ export async function listResults(max = 2000): Promise<ResultRow[]> {
     const assessmentTitle = String(
       data['assessmentName'] ?? data['testName'] ?? data['assessmentTitle'] ?? data['title'] ?? ""
     );
-    // Assessment ID — from doc path (assessmentResults/{assessmentId}/students/{userId})
+    // Assessment ID — from doc path: assessmentResults/{assessmentId}/students/{userId}
+    // Use path segment [1] (0-indexed) = assessmentId under assessmentResults.
+    // NOTE: d.ref.parent.parent?.id would give the parent collection doc id which
+    // is correct ONLY when the path is assessmentResults/{id}/students/{uid} (depth=4).
+    // For collectionGroup "students" the path can also be under other parents, so
+    // we parse explicitly to avoid misidentifying tenant IDs as assessment IDs.
+    const pathParts = d.ref.path.split("/");
+    // assessmentResults / {assessmentId} / students / {userId}  → segments[1]
+    const assessmentIdFromPath = pathParts[0] === "assessmentResults" ? (pathParts[1] ?? "") : "";
     const assessmentId = String(
-      data['assessmentId'] ?? data['testID'] ?? d.ref.parent.parent?.id ?? ""
+      data['assessmentId'] ?? data['testID'] ?? assessmentIdFromPath
     );
     // Type
     const type = String(data['type'] ?? "");
@@ -138,7 +146,10 @@ export async function listResultsByTenant(
     const assessmentTitle = String(
       data['assessmentName'] ?? data['testName'] ?? data['assessmentTitle'] ?? ""
     );
-    const assessmentId = String(data['assessmentId'] ?? d.ref.parent.parent?.id ?? "");
+    // Assessment ID — from data field; do NOT fall back to d.ref.parent.parent?.id
+    // because under tenantResults/{tenantId}/results/{id} the parent chain resolves
+    // to tenantId, not the assessment ID. Use the stored field only.
+    const assessmentId = String(data['assessmentId'] ?? data['testID'] ?? "");
     const type = String(data['type'] ?? "");
     const timeTakenSeconds = Number(data['timeTakenSeconds'] ?? data['timeTaken'] ?? 0);
 

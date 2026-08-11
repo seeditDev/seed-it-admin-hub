@@ -60,7 +60,12 @@ export async function touchLastLogin(uid: string): Promise<void> {
   await updateDoc(doc(getDb(), USERS, uid), { lastLoginAt: serverTimestamp() }).catch(() => {});
 }
 
-/** Role-scoped listing: single-field queries only, so no composite index is required. */
+/**
+ * Role-scoped listing.
+ * NOTE: when both tenantId and role filters are used this is a two-field
+ * equality query requiring a composite index on (tenantId ASC, role ASC).
+ * Deploy firestore.indexes.json to create it.
+ */
 export async function listUsersByRole(role: Role, tenantId?: string): Promise<AppUser[]> {
   const base = collection(getDb(), USERS);
   const snap = await getDocs(
@@ -138,8 +143,29 @@ export async function provisionAccount(
     authCreated = true;
   } catch (err) {
     const code = (err as { code?: string }).code ?? "";
-    // Credential already exists — keep the Firestore profile in sync under the email key.
     if (code !== "auth/email-already-in-use") throw new Error(friendlyAuthError(err));
+    // Auth account already exists — recover the real UID by querying Firestore
+    // so the profile lands at users/{authUID} not users/{emailKey}.
+    // Strategy: look for an existing users doc with matching email field first;
+    // fall back to the sanitized email key doc if none found (legacy profiles).
+    try {
+      const existing = await getDocs(
+        query(collection(getDb(), USERS), where("email", "==", email))
+      );
+      if (!existing.empty) {
+        const existingDoc = existing.docs[0];
+        const storedUid = String((existingDoc.data() as Record<string, unknown>)['uid'] ?? existingDoc.id);
+        // Use the stored uid only if it looks like a real Firebase UID (not a sanitized email)
+        if (storedUid && !storedUid.includes('_at_') && !storedUid.includes('.')) {
+          uid = storedUid;
+        } else {
+          uid = existingDoc.id;
+        }
+      }
+      // uid stays as sanitizeEmailKey(email) only as last resort for legacy profiles
+    } catch {
+      console.warn('[provisionAccount] Could not resolve existing UID; using email key fallback');
+    }
   } finally {
     if (!opts.keepSecondaryAlive) await releaseSecondaryApp();
   }

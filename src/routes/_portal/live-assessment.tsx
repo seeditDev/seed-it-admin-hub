@@ -195,12 +195,28 @@ function LiveAssessmentPage() {
   const fetchSessions = useCallback(async () => {
     setLoading(true);
     try {
-      const q = query(
-        collectionGroup(db, "contestAttempts"),
-        where("completed", "==", false),
-      );
-      const snap = await getDocs(q);
-      const result: ActiveSession[] = snap.docs.map((d) => {
+      // Fetch both contestAttempts (MCQ/coding) AND multiSectionAttempts (MSA)
+      // in parallel — all assessments are treated identically in the monitor.
+      const [contestSnap, msaSnap] = await Promise.all([
+        getDocs(query(
+          collectionGroup(db, "contestAttempts"),
+          where("completed", "==", false),
+        )),
+        getDocs(query(
+          collectionGroup(db, "multiSectionAttempts"),
+          where("completed", "==", false),
+        )),
+      ]);
+
+      // Merge and deduplicate by docPath (in case of duplicate writes)
+      const seen = new Set<string>();
+      const allDocs = [...contestSnap.docs, ...msaSnap.docs].filter((d) => {
+        if (seen.has(d.ref.path)) return false;
+        seen.add(d.ref.path);
+        return true;
+      });
+
+      const result: ActiveSession[] = allDocs.map((d) => {
         const data = d.data() as Record<string, unknown>;
         const pathParts = d.ref.path.split("/");
         const uid = pathParts[1] ?? "unknown";
@@ -238,6 +254,7 @@ function LiveAssessmentPage() {
     } finally {
       setLoading(false);
     }
+
   }, [db]);
 
   useEffect(() => {

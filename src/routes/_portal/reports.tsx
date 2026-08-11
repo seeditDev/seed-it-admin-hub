@@ -143,6 +143,16 @@ function medalBadge(rank: number) {
   return <span className="text-sm text-muted-foreground">#{rank}</span>;
 }
 
+/** HTML-escape a value before interpolating into document.write HTML. Prevents XSS from student-controlled fields. */
+function he(s: unknown): string {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function printRows(title: string, headers: string[], rows: (string | number)[][]) {
   const win = window.open("", "_blank", "width=1000,height=700");
   if (!win) { toast.error("Pop-up blocked — allow pop-ups to export PDF"); return; }
@@ -152,10 +162,10 @@ function printRows(title: string, headers: string[], rows: (string | number)[][]
     table{width:100%;border-collapse:collapse;font-size:11px}
     th,td{border:1px solid #ccc;padding:5px 7px;text-align:left}
     th{background:#f2f2f2;font-weight:600}tr:nth-child(even){background:#fafafa}`;
-  const body = `<h1>${title}</h1><p class="meta">Generated: ${new Date().toLocaleString()} · ${rows.length} record(s)</p>
-    <table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead>
-    <tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
-  win.document.write(`<!doctype html><html><head><title>${title}</title><style>${style}</style></head><body>${body}</body></html>`);
+  const body = `<h1>${he(title)}</h1><p class="meta">Generated: ${new Date().toLocaleString()} &middot; ${rows.length} record(s)</p>
+    <table><thead><tr>${headers.map((h) => `<th>${he(h)}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${he(c)}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  win.document.write(`<!doctype html><html><head><title>${he(title)}</title><style>${style}</style></head><body>${body}</body></html>`);
   win.document.close(); win.focus(); win.print();
 }
 
@@ -399,7 +409,7 @@ function ReportsPage() {
     const win = window.open("", "_blank", "width=900,height=700");
     if (!win) { toast.error("Pop-up blocked — allow pop-ups to export PDF"); return; }
     const pass = r.percentage >= passThreshold;
-    const college = tenantNameOf.get(r.tenantId) ?? r.tenantId;
+    const college = he(tenantNameOf.get(r.tenantId) ?? r.tenantId);
     const style = `
       body{font-family:ui-sans-serif,system-ui,sans-serif;padding:32px;color:#111;max-width:720px;margin:0 auto}
       h1{font-size:20px;font-weight:700;margin-bottom:2px}h2{font-size:13px;font-weight:600;margin:20px 0 8px;color:#444;border-bottom:1px solid #e5e5e5;padding-bottom:4px}
@@ -418,19 +428,19 @@ function ReportsPage() {
     `;
     const body = `
       <h1>Individual Assessment Report</h1>
-      <p class="meta">SEED-IT Platform · Generated: ${new Date().toLocaleString()}</p>
+      <p class="meta">SEED-IT Platform &middot; Generated: ${new Date().toLocaleString()}</p>
       <h2>Student Details</h2>
       <table>
-        <tr><th>Name</th><td>${r.displayName || r.email}</td><th>Email</th><td>${r.email}</td></tr>
-        <tr><th>Roll No.</th><td>${r.rollNumber || "—"}</td><th>College</th><td>${college}</td></tr>
-        <tr><th>Year</th><td>${normaliseYear(r.cohortId) ?? "—"}</td><th>Department</th><td>${r.department || "—"}</td></tr>
+        <tr><th>Name</th><td>${he(r.displayName || r.email)}</td><th>Email</th><td>${he(r.email)}</td></tr>
+        <tr><th>Roll No.</th><td>${he(r.rollNumber || "\u2014")}</td><th>College</th><td>${college}</td></tr>
+        <tr><th>Year</th><td>${he(normaliseYear(r.cohortId) ?? "\u2014")}</td><th>Department</th><td>${he(r.department || "\u2014")}</td></tr>
       </table>
       <h2>Assessment Performance</h2>
       <table>
-        <tr><th>Assessment</th><td colspan="3">${r.assessmentTitle}</td></tr>
+        <tr><th>Assessment</th><td colspan="3">${he(r.assessmentTitle)}</td></tr>
         <tr><th>Score</th><td>${r.totalScore} / ${r.maxScore}</td><th>Percentage</th><td>${pf.format(r.percentage)}%</td></tr>
         <tr><th>Status</th><td><span class="badge ${pass ? "pass" : "fail"}">${pass ? "PASS" : "FAIL"}</span></td><th>Pass Threshold</th><td>${passThreshold}%</td></tr>
-        <tr><th>Submitted</th><td>${r.submittedAt?.toLocaleString() ?? "—"}</td><th>Violations</th><td>${r.violations || 0}</td></tr>
+        <tr><th>Submitted</th><td>${he(r.submittedAt?.toLocaleString() ?? "\u2014")}</td><th>Violations</th><td>${r.violations || 0}</td></tr>
       </table>
       <div class="grid2">
         <div class="stat-box">
@@ -442,10 +452,10 @@ function ReportsPage() {
           <div class="stat-val" style="color:${pass?'#16a34a':'#dc2626'}">${pf.format(r.percentage)}%</div>
         </div>
       </div>
-      ${r.violations > 0 ? `<h2>Proctoring Violations</h2><p style="font-size:12px;color:#dc2626">⚠️ This student had ${r.violations} proctoring violation(s) recorded during this assessment.</p>` : ""}
-      <p style="margin-top:32px;font-size:10px;color:#aaa;text-align:center">SEED-IT Admin Platform — Confidential</p>
+      ${r.violations > 0 ? `<h2>Proctoring Violations</h2><p style="font-size:12px;color:#dc2626">&#9888; This student had ${r.violations} proctoring violation(s) recorded during this assessment.</p>` : ""}
+      <p style="margin-top:32px;font-size:10px;color:#aaa;text-align:center">SEED-IT Admin Platform &mdash; Confidential</p>
     `;
-    win.document.write(`<!doctype html><html><head><title>Report — ${r.displayName}</title><style>${style}</style></head><body>${body}</body></html>`);
+    win.document.write(`<!doctype html><html><head><title>Report &mdash; ${he(r.displayName)}</title><style>${style}</style></head><body>${body}</body></html>`);
     win.document.close(); win.focus();
     setTimeout(() => win.print(), 400);
     toast.success("Opening individual report…");
