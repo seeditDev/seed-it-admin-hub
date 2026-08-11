@@ -89,7 +89,9 @@ export const Route = createFileRoute("/_portal/students")({
   component: StudentsPage,
 });
 
-const DEFAULT_PASSWORD = "Seedit@123";
+/** Password assigned on onboarding = rollNumber@SEEDIT (e.g. 22CSE001@SEEDIT) */
+const makePassword = (rollNumber: string) =>
+  rollNumber.trim() ? `${rollNumber.trim()}@SEEDIT` : `SEED${Date.now()}@SEEDIT`;
 
 interface ParsedRow extends StudentInput {
   rowNumber: number;
@@ -124,6 +126,22 @@ const HEADER_ALIASES: Record<keyof StudentInput | "password", string[]> = {
   role: ["role"],
 };
 
+interface CollegeEntry { code: string; name: string; shortName: string; }
+
+function flattenCollegeIndex(data: Record<string, unknown>): CollegeEntry[] {
+  const byCity = (data as { collegesByCity?: Record<string, unknown[]> }).collegesByCity ?? {};
+  const result: CollegeEntry[] = [];
+  for (const colleges of Object.values(byCity)) {
+    for (const c of colleges) {
+      if (typeof c === "object" && c !== null) {
+        const e = c as Record<string, string>;
+        if (e['code']) result.push({ code: e['code'], name: e['name'] ?? e['code'], shortName: e['shortName'] ?? "" });
+      }
+    }
+  }
+  return result.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function normHeader(value: string): string {
   return value.toLowerCase().replace(/[\s._-]/g, "");
 }
@@ -155,6 +173,19 @@ function StudentsPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [outcomes, setOutcomes] = useState<UploadOutcome[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  // ── Import college picker (south_india_index.json) ──────────────────────────
+  const [allImportColleges, setAllImportColleges] = useState<CollegeEntry[]>([]);
+  const [importCollegeSearch, setImportCollegeSearch] = useState("");
+  const [importCollegeSuggestions, setImportCollegeSuggestions] = useState<CollegeEntry[]>([]);
+  const [importCollege, setImportCollege] = useState<CollegeEntry | null>(null);
+
+  // Load college index once
+  useState(() => {
+    fetch("/south_india_index.json").then(r => r.json()).then((data: Record<string, unknown>) => {
+      setAllImportColleges(flattenCollegeIndex(data));
+    }).catch(() => {});
+  });
 
   const tenantsQ = useQuery({ queryKey: ["tenants"], queryFn: listTenants });
   const usersQ = useQuery({ queryKey: ["users", "all"], queryFn: listAllUsers });
@@ -269,8 +300,9 @@ function StudentsPage() {
           password: "",
           displayName: "",
           rollNumber: "",
-          tenantId: scopedTenantId || (tenantFilter !== "all" ? tenantFilter : ""),
-          college: "",
+          // tenantId comes from the import college picker — not from the CSV
+          tenantId: importCollege?.code ?? scopedTenantId ?? "",
+          college: importCollege?.name ?? "",
           cohortId: "",
           year: "",
           department: "",
@@ -281,6 +313,7 @@ function StudentsPage() {
         for (const [header, value] of Object.entries(record)) {
           const field = fieldForHeader(header);
           if (!field) continue;
+          if (field === "tenantId") continue; // always use picker value
           const text = String(value ?? "").trim();
           if (field === "premium") {
             row.premium = ["yes", "true", "1", "premium", "y"].includes(text.toLowerCase());
@@ -294,9 +327,10 @@ function StudentsPage() {
         if (!row.email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(row.email))
           row.errors.push("Invalid or missing email");
         if (!row.displayName) row.errors.push("Missing name");
-        if (!row.tenantId) row.errors.push("Missing tenant ID");
-        if (!row.password) row.password = DEFAULT_PASSWORD;
-        if (!row.college) row.college = tenants.find((t) => t.id === row.tenantId)?.name ?? row.tenantId;
+        if (!row.tenantId) row.errors.push("Select a college above before uploading");
+        // Password auto-derived from roll number — no column needed
+        row.password = makePassword(row.rollNumber);
+        if (!row.college) row.college = importCollege?.name ?? tenants.find((t) => t.id === row.tenantId)?.name ?? row.tenantId;
         const normYear = normaliseYear(row.year || row.cohortId);
         if (!normYear) {
           row.errors.push(`${YEAR_RANGE_HINT} (row value: "${row.year || row.cohortId || "empty"}")`);
@@ -352,20 +386,27 @@ function StudentsPage() {
 
   async function downloadTemplate() {
     const XLSX = await import("xlsx");
+    const college = importCollege ?? tenants[0];
     const sheet = XLSX.utils.json_to_sheet([
       {
+        Name: "Student Full Name",
         Email: "student@college.edu",
-        Password: DEFAULT_PASSWORD,
-        Name: "Student Name",
         RollNumber: "22CSE001",
-        TenantID: tenants[0]?.id ?? "KITE",
-        College: tenants[0]?.name ?? "KG Kite College",
-        CohortID: "2K27",
+        // Password is auto-generated as RollNumber@SEEDIT — no column needed
         Year: "2027",
         Department: "CSE",
-        Premium: "yes",
+        CohortID: "2K27",
+        Premium: "no",
       },
     ]);
+    // Add a note row explaining password
+    XLSX.utils.sheet_add_aoa(sheet, [
+      [],
+      ["NOTES:"],
+      [`College: ${college ? `${college.name} (${college instanceof Object && 'id' in college ? (college as {id: string}).id : importCollege?.code ?? ''})` : 'Select college in admin before upload'}`],
+      ["Password: Auto-set to RollNumber@SEEDIT (e.g. 22CSE001@SEEDIT). Students use this to log in."],
+      ["TenantID: Do NOT include — college is selected in the admin import panel."],
+    ], { origin: -1 });
     const book = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(book, sheet, "Students");
     XLSX.writeFile(book, "seed-it-student-template.xlsx");
@@ -609,6 +650,78 @@ function StudentsPage() {
               <CardTitle className="text-sm font-semibold">Excel bulk provisioning</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+
+              {/* ── College Picker ── */}
+              <div className="space-y-2 rounded-2xl border bg-muted/30 p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Step 1: Select College</p>
+                <p className="text-xs text-muted-foreground">
+                  All imported students will be assigned to this college (TenantID = college code from index).
+                </p>
+                {scopedTenantId ? (
+                  <div className="rounded-xl border bg-background px-3 py-2 text-sm">
+                    {tenants.find(t => t.id === scopedTenantId)?.name ?? scopedTenantId}
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <Input
+                      id="import-college-search"
+                      className="rounded-xl"
+                      placeholder="Search college by name or code…"
+                      value={importCollegeSearch}
+                      onChange={(e) => {
+                        setImportCollegeSearch(e.target.value);
+                        if (importCollege && e.target.value !== importCollege.name) setImportCollege(null);
+                        const q = e.target.value.toLowerCase();
+                        setImportCollegeSuggestions(
+                          q.length < 2 ? [] :
+                          allImportColleges.filter(c =>
+                            c.name.toLowerCase().includes(q) ||
+                            c.shortName.toLowerCase().includes(q) ||
+                            c.code.toLowerCase().includes(q)
+                          ).slice(0, 8)
+                        );
+                      }}
+                    />
+                    {importCollegeSuggestions.length > 0 && (
+                      <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-xl border bg-popover shadow-lg">
+                        {importCollegeSuggestions.map((c) => (
+                          <button
+                            key={c.code}
+                            type="button"
+                            className="flex w-full items-start gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
+                            onClick={() => {
+                              setImportCollege(c);
+                              setImportCollegeSearch(c.name);
+                              setImportCollegeSuggestions([]);
+                              // Re-parse rows with new tenantId if already loaded
+                              if (rows.length > 0) {
+                                setRows(prev => prev.map(r => ({
+                                  ...r,
+                                  tenantId: c.code,
+                                  college: c.name,
+                                  password: makePassword(r.rollNumber),
+                                  errors: r.errors.filter(e => !e.includes("Select a college")),
+                                })));
+                              }
+                            }}
+                          >
+                            <span className="font-mono text-xs text-muted-foreground mt-0.5">{c.code}</span>
+                            <span>{c.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {importCollege && (
+                  <p className="text-xs text-emerald-500">College: <strong>{importCollege.name}</strong> · TenantID: <code>{importCollege.code}</code></p>
+                )}
+              </div>
+
+              {/* ── File Drop Zone ── */}
+              <div className="space-y-1">
+                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Step 2: Upload Roster (.xlsx / .csv)</p>
+              </div>
               <div
                 className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed p-10 text-center transition-colors hover:border-primary/60"
                 onDragOver={(e) => e.preventDefault()}
@@ -621,8 +734,8 @@ function StudentsPage() {
                 <FileSpreadsheet className="size-10 text-primary" />
                 <p className="mt-3 text-sm font-medium">Drop an .xlsx / .csv roster here</p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Columns: Email, Password, Name, RollNumber, TenantID, College, CohortID, Year,
-                  Department, Premium
+                  Columns: <strong>Name, Email, RollNumber</strong>, Year, Department, CohortID, Premium
+                  &nbsp;·&nbsp; Password auto-set to <code>RollNumber@SEEDIT</code> &nbsp;·&nbsp; No TenantID column needed
                 </p>
                 <div className="mt-4 flex flex-wrap justify-center gap-2">
                   <Button className="rounded-xl" onClick={() => fileInput.current?.click()}>
@@ -823,7 +936,7 @@ function StudentDialog({
 }) {
   const [form, setForm] = useState<StudentInput>({
     email: "",
-    password: DEFAULT_PASSWORD,
+    password: makePassword(""),
     displayName: "",
     rollNumber: "",
     tenantId: scopedTenantId ?? "",
@@ -854,7 +967,7 @@ function StudentDialog({
           }
         : {
             email: "",
-            password: DEFAULT_PASSWORD,
+            password: makePassword(""),
             displayName: "",
             rollNumber: "",
             tenantId: scopedTenantId ?? tenants[0]?.id ?? "",
@@ -921,8 +1034,16 @@ function StudentDialog({
               id="s-roll"
               className="rounded-xl font-mono"
               value={form.rollNumber}
-              onChange={(e) => set("rollNumber", e.target.value)}
+              onChange={(e) => {
+                const rn = e.target.value;
+                set("rollNumber", rn);
+                // Auto-derive password from roll number
+                set("password", makePassword(rn));
+              }}
             />
+            <p className="text-xs text-muted-foreground">
+              Password will be set to <code>{form.rollNumber ? `${form.rollNumber}@SEEDIT` : "RollNumber@SEEDIT"}</code>
+            </p>
           </div>
           <div className="space-y-2">
             <Label>College tenant</Label>

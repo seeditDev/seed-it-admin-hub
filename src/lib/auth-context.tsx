@@ -19,6 +19,8 @@ interface AuthState {
   isAuthenticated: boolean;
   isAdmin: boolean;
   isStaff: boolean;
+  /** The raw role string from the user's Firestore profile ("admin", "staff", "student", etc.) */
+  role: string | null;
   /** Tenant a staff member is scoped to; null means unrestricted. */
   scopedTenantId: string | null;
   signIn: (email: string, password: string) => Promise<void>;
@@ -75,6 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isAuthenticated: Boolean(firebaseUser && account),
       isAdmin,
       isStaff: role === "staff",
+      role,
       scopedTenantId: role === "staff" ? (account?.tenantId ?? null) : null,
       signIn: async (email, password) => {
         setError(null);

@@ -13,6 +13,7 @@ import type {
   AssessmentStatus,
   AssessmentTargeting,
   AssessmentType,
+  CodingChallenge,
   CodingProblem,
   McqQuestion,
   ProctorConfig,
@@ -71,8 +72,35 @@ export interface AssessmentDoc extends Assessment {
   passPercentage: number;
   questions: McqQuestion[];
   problem: CodingProblem | null;
+  /** Multi-challenge coding assessments (one problem per challenge). */
+  challenges: CodingChallenge[];
   prompts: SeaPrompt[];
   rubric: SeaRubric | null;
+  /**
+   * Public CDN URL to the full assessment JSON in seed-contents GitHub repo.
+   * Set when the assessment is published; null for draft-only assessments.
+   */
+  cdnUrl: string | null;
+
+  /**
+   * Assessment access code — a short alphanumeric code (e.g. "SEED2024A") that
+   * allows ANYONE to access and take this specific assessment without logging in.
+   *
+   * Guest flow:
+   *   1. User goes to /guest (no login)
+   *   2. Enters assessmentCode
+   *   3. If guestEnabled = true, they fill in name / college / year / rollno
+   *   4. They can start the assessment immediately
+   *
+   * Null = no guest access (login required).
+   */
+  assessmentCode: string | null;
+
+  /**
+   * Whether this assessment allows unauthenticated (guest) access via assessmentCode.
+   * When true, the assessmentCode acts as a passkey that anyone can use.
+   */
+  guestEnabled: boolean;
 }
 
 export const DEFAULT_CODING_PROBLEM: CodingProblem = {
@@ -121,9 +149,40 @@ function mapAssessment(id: string, data: Record<string, unknown>): AssessmentDoc
     passPercentage: Number(data['passPercentage'] ?? 40),
     questions: Array.isArray(data['questions']) ? (data['questions'] as McqQuestion[]) : [],
     problem: (data['problem'] as CodingProblem | undefined) ?? null,
+    challenges: Array.isArray(data['challenges']) ? (data['challenges'] as CodingChallenge[]) : [],
     prompts: Array.isArray(data['prompts']) ? (data['prompts'] as SeaPrompt[]) : [],
     rubric: (data['rubric'] as SeaRubric | undefined) ?? null,
+    cdnUrl: data['cdnUrl'] ? String(data['cdnUrl']) : null,
+    assessmentCode: data['assessmentCode'] ? String(data['assessmentCode']) : null,
+    guestEnabled: Boolean(data['guestEnabled'] ?? false),
   };
+}
+
+/**
+ * Generate a unique 8-character alphanumeric assessment code.
+ * e.g. "SEED2024", "MCQ7AB3X"
+ * Admin can regenerate this from the UI.
+ */
+export function generateAssessmentCode(prefix = ""): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // unambiguous chars (no 0/O/I/1)
+  const rand = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+  return `${prefix ? prefix.toUpperCase().slice(0, 4) : "SEED"}${rand}`;
+}
+
+/**
+ * Fetch a single assessment by its assessmentCode (for guest access).
+ * Returns null if not found or guest access is disabled.
+ */
+export async function getAssessmentByCode(code: string): Promise<AssessmentDoc | null> {
+  const { query: fsQuery, where, getDocs: getDs } = await import("firebase/firestore");
+  const snap = await getDs(
+    fsQuery(collection(getDb(), ASSESSMENTS),
+      where("assessmentCode", "==", code.toUpperCase().trim()),
+      where("guestEnabled", "==", true),
+    )
+  );
+  if (snap.empty) return null;
+  return mapAssessment(snap.docs[0]!.id, snap.docs[0]!.data() as Record<string, unknown>);
 }
 
 export async function listAssessments(): Promise<AssessmentDoc[]> {
@@ -132,6 +191,7 @@ export async function listAssessments(): Promise<AssessmentDoc[]> {
     .map((d) => mapAssessment(d.id, d.data() as Record<string, unknown>))
     .sort((a, b) => a.title.localeCompare(b.title));
 }
+
 
 export async function getAssessment(id: string): Promise<AssessmentDoc | null> {
   const snap = await getDoc(doc(getDb(), ASSESSMENTS, id));
@@ -168,8 +228,14 @@ export async function saveAssessment(input: AssessmentInput, createdBy?: string)
   };
   if (input.questions) payload['questions'] = input.questions;
   if (input.problem) payload['problem'] = input.problem;
+  if (input.challenges && input.challenges.length > 0) payload['challenges'] = input.challenges;
   if (input.prompts) payload['prompts'] = input.prompts;
   if (input.rubric) payload['rubric'] = input.rubric;
+  // CDN URL — set when the assessment JSON has been published to seed-contents
+  if (input.cdnUrl !== undefined) payload['cdnUrl'] = input.cdnUrl ?? null;
+  // Guest access fields
+  if (input.assessmentCode !== undefined) payload['assessmentCode'] = input.assessmentCode ?? null;
+  if (input.guestEnabled !== undefined) payload['guestEnabled'] = Boolean(input.guestEnabled);
   if (!input.id) {
     payload['createdAt'] = serverTimestamp();
     if (createdBy) payload['createdBy'] = createdBy;
@@ -184,6 +250,12 @@ export async function setAssessmentStatus(id: string, status: AssessmentStatus):
 
 export async function deleteAssessment(id: string): Promise<void> {
   await deleteDoc(doc(getDb(), ASSESSMENTS, id));
+  // Also remove the contentUrls registry entry so the SEB slug dropdown stays clean
+  try {
+    await deleteDoc(doc(getDb(), "contentUrls", id));
+  } catch (_) {
+    // Non-fatal: contentUrls entry may not exist for every assessment
+  }
 }
 
 /** Duplicates an assessment into a fresh draft. */

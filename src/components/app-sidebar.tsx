@@ -1,12 +1,15 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
   Building2,
+  BookOpenCheck,
   ClipboardList,
   Code2,
+  Database,
   GraduationCap,
   LayoutDashboard,
   ListChecks,
   Mic,
+  Radio,
   Users,
   UserSquare2,
   BarChart3,
@@ -37,17 +40,23 @@ const OVERVIEW: NavItem[] = [{ title: "Dashboard", url: "/dashboard", icon: Layo
 const MANAGE: NavItem[] = [
   { title: "Colleges & Cohorts", url: "/colleges", icon: Building2, adminOnly: true },
   { title: "Student Roster", url: "/students", icon: Users },
+  { title: "Courses & Assessments", url: "/courses", icon: BookOpenCheck, adminOnly: true },
   { title: "Module Assignment", url: "/assign-modules", icon: ListChecks, adminOnly: true },
   { title: "Staff Management", url: "/staff-management", icon: UserSquare2, adminOnly: true },
 ];
 
 const AUTHOR: NavItem[] = [
   { title: "MCQ Creator", url: "/mcq-creator", icon: ClipboardList },
+  { title: "Question Bank", url: "/question-bank", icon: Database },
   { title: "Coding Creator", url: "/coding-creator", icon: Code2 },
   { title: "SEA Creator", url: "/sea-creator", icon: Mic },
 ];
 
 const INSIGHTS: NavItem[] = [{ title: "Reports & Analysis", url: "/reports", icon: BarChart3 }];
+
+const OPERATIONS: NavItem[] = [
+  { title: "Live Assessment", url: "/live-assessment", icon: Radio, adminOnly: true },
+];
 
 export function AppSidebar() {
   const { state } = useSidebar();
@@ -58,6 +67,7 @@ export function AppSidebar() {
   const groups: Array<{ label: string; items: NavItem[] }> = [
     { label: "Overview", items: OVERVIEW },
     { label: "Administration", items: MANAGE },
+    { label: "Operations", items: OPERATIONS },
     { label: "Assessment Authoring", items: AUTHOR },
     { label: "Insights", items: INSIGHTS },
   ];

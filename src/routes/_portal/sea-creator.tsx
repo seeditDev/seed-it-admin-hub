@@ -5,10 +5,12 @@ import {
   Archive,
   CheckCircle2,
   Copy,
+  KeyRound,
   Loader2,
   Mic,
   Pencil,
   Plus,
+  RefreshCw,
   Trash2,
   X,
 } from "lucide-react";
@@ -101,6 +103,8 @@ interface Draft {
   prompts: SeaPrompt[];
   rubric: SeaRubric;
   status: AssessmentStatus;
+  guestEnabled: boolean;
+  assessmentCode: string;
   isNew: boolean;
 }
 
@@ -122,6 +126,8 @@ function emptyDraft(scopedTenantId: string | null): Draft {
     prompts: [newPrompt()],
     rubric: { ...DEFAULT_SEA_RUBRIC },
     status: "draft",
+    guestEnabled: false,
+    assessmentCode: "",
     isNew: true,
   };
 }
@@ -155,6 +161,8 @@ function fromAssessment(a: AssessmentDoc): Draft {
     prompts: a.prompts.length ? a.prompts : [newPrompt()],
     rubric: a.rubric ?? { ...DEFAULT_SEA_RUBRIC },
     status: a.status,
+    guestEnabled: a.guestEnabled ?? false,
+    assessmentCode: a.assessmentCode ?? "",
     isNew: false,
   };
 }
@@ -219,11 +227,26 @@ function SeaCreatorPage() {
           proctorConfig: d.proctorConfig,
           prompts: d.prompts,
           rubric: d.rubric,
+          guestEnabled: d.guestEnabled,
+          assessmentCode: d.assessmentCode || null,
         },
         account?.uid,
       ),
-    onSuccess: (_id, d) => {
-      toast.success(d.isNew ? "Spoken-English assessment created" : "Assessment updated");
+    onSuccess: (savedId, d) => {
+      // Register in contentUrls so this SEA assessment appears in the Courses dropdown
+      import("@/lib/firestore/contentUrls").then(({ upsertContentUrl }) =>
+        upsertContentUrl({
+          id: savedId ?? d.id,
+          title: d.title,
+          type: "sea",
+          cdnUrl: "",   // SEA has no CDN JSON — identified by Firestore ID only
+          slug: savedId ?? d.id,
+          totalMarks: 100,
+          durationMinutes: d.durationMinutes,
+        }),
+      ).catch(console.warn);
+
+      toast.success(d.isNew ? "SEA assessment created — map it in Courses & Assessments." : "Assessment updated.");
       setDraft(null);
       void qc.invalidateQueries({ queryKey: ["assessments"] });
     },

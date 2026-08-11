@@ -36,6 +36,7 @@ export async function listTenants(): Promise<Tenant[]> {
         slug: String(data['slug'] ?? d.id.toLowerCase()),
         logoUrl: data['logoUrl'] ? String(data['logoUrl']) : undefined,
         active: data['active'] !== false,
+        gateKey: data['gateKey'] ? String(data['gateKey']) : undefined,
         createdAt: (data['createdAt'] ?? null) as Tenant["createdAt"],
         settings: normaliseSettings(data['settings']),
       } satisfies Tenant;
@@ -48,6 +49,7 @@ export async function upsertTenant(input: {
   name: string;
   slug: string;
   active: boolean;
+  gateKey?: string;
   settings: TenantSettings;
   isNew: boolean;
 }): Promise<void> {
@@ -60,6 +62,7 @@ export async function upsertTenant(input: {
       name: input.name,
       slug: input.slug,
       active: input.active,
+      gateKey: input.gateKey ?? "",
       settings: input.settings,
       createdAt: serverTimestamp(),
     });
@@ -69,6 +72,7 @@ export async function upsertTenant(input: {
     name: input.name,
     slug: input.slug,
     active: input.active,
+    gateKey: input.gateKey ?? "",
     settings: input.settings,
   });
 }

@@ -17,6 +17,13 @@ export interface Tenant {
   slug: string;
   logoUrl?: string | undefined;
   active: boolean;
+  /**
+   * Optional college-level gate key for the Guest Portal.
+   * If set, guests must enter this key after selecting their college
+   * before they can see personal details form and assessment list.
+   * Leave empty for open guest access.
+   */
+  gateKey?: string | undefined;
   createdAt?: Timestamp | null | undefined;
   settings: TenantSettings;
 }
@@ -200,6 +207,22 @@ export interface CodingProblem {
   blockCopyPaste: boolean;
   fullScreenLock: boolean;
   testCases: TestCase[];
+}
+
+/** A single coding challenge entry in a Coding assessment.
+ *  Extends CodingProblem with top-level id / title so the creator UI
+ *  can list multiple challenges in one assessment. */
+export interface CodingChallenge extends CodingProblem {
+  /** Stable ID — used as bank key and dedup guard. */
+  id: string;
+  title: string;
+  difficulty: Difficulty;
+  /** Category tag (e.g. "Arrays", "Graphs"). */
+  category: string;
+  /** True when loaded from the Firestore bank so we skip re-writing bank data. */
+  isMapped?: boolean;
+  /** CDN URL for the full question JSON (seed-contents). Populated when loaded from bank. */
+  cdnUrl?: string;
 }
 
 export interface SeaPrompt {

@@ -14,8 +14,11 @@ import { Route as PortalRouteImport } from './routes/_portal'
 import { Route as PortalAssignModulesRouteImport } from './routes/_portal/assign-modules'
 import { Route as PortalCodingCreatorRouteImport } from './routes/_portal/coding-creator'
 import { Route as PortalCollegesRouteImport } from './routes/_portal/colleges'
+import { Route as PortalCoursesRouteImport } from './routes/_portal/courses'
 import { Route as PortalDashboardRouteImport } from './routes/_portal/dashboard'
+import { Route as PortalLiveAssessmentRouteImport } from './routes/_portal/live-assessment'
 import { Route as PortalMcqCreatorRouteImport } from './routes/_portal/mcq-creator'
+import { Route as PortalQuestionBankRouteImport } from './routes/_portal/question-bank'
 import { Route as PortalReportsRouteImport } from './routes/_portal/reports'
 import { Route as PortalSeaCreatorRouteImport } from './routes/_portal/sea-creator'
 import { Route as PortalStaffManagementRouteImport } from './routes/_portal/staff-management'
@@ -45,14 +48,29 @@ const PortalCollegesRoute = PortalCollegesRouteImport.update({
   path: '/colleges',
   getParentRoute: () => PortalRoute,
 } as any)
+const PortalCoursesRoute = PortalCoursesRouteImport.update({
+  id: '/courses',
+  path: '/courses',
+  getParentRoute: () => PortalRoute,
+} as any)
 const PortalDashboardRoute = PortalDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
   getParentRoute: () => PortalRoute,
 } as any)
+const PortalLiveAssessmentRoute = PortalLiveAssessmentRouteImport.update({
+  id: '/live-assessment',
+  path: '/live-assessment',
+  getParentRoute: () => PortalRoute,
+} as any)
 const PortalMcqCreatorRoute = PortalMcqCreatorRouteImport.update({
   id: '/mcq-creator',
   path: '/mcq-creator',
+  getParentRoute: () => PortalRoute,
+} as any)
+const PortalQuestionBankRoute = PortalQuestionBankRouteImport.update({
+  id: '/question-bank',
+  path: '/question-bank',
   getParentRoute: () => PortalRoute,
 } as any)
 const PortalReportsRoute = PortalReportsRouteImport.update({
@@ -81,8 +99,11 @@ export interface FileRoutesByFullPath {
   '/assign-modules': typeof PortalAssignModulesRoute
   '/coding-creator': typeof PortalCodingCreatorRoute
   '/colleges': typeof PortalCollegesRoute
+  '/courses': typeof PortalCoursesRoute
   '/dashboard': typeof PortalDashboardRoute
+  '/live-assessment': typeof PortalLiveAssessmentRoute
   '/mcq-creator': typeof PortalMcqCreatorRoute
+  '/question-bank': typeof PortalQuestionBankRoute
   '/reports': typeof PortalReportsRoute
   '/sea-creator': typeof PortalSeaCreatorRoute
   '/staff-management': typeof PortalStaffManagementRoute
@@ -93,8 +114,11 @@ export interface FileRoutesByTo {
   '/assign-modules': typeof PortalAssignModulesRoute
   '/coding-creator': typeof PortalCodingCreatorRoute
   '/colleges': typeof PortalCollegesRoute
+  '/courses': typeof PortalCoursesRoute
   '/dashboard': typeof PortalDashboardRoute
+  '/live-assessment': typeof PortalLiveAssessmentRoute
   '/mcq-creator': typeof PortalMcqCreatorRoute
+  '/question-bank': typeof PortalQuestionBankRoute
   '/reports': typeof PortalReportsRoute
   '/sea-creator': typeof PortalSeaCreatorRoute
   '/staff-management': typeof PortalStaffManagementRoute
@@ -107,8 +131,11 @@ export interface FileRoutesById {
   '/_portal/assign-modules': typeof PortalAssignModulesRoute
   '/_portal/coding-creator': typeof PortalCodingCreatorRoute
   '/_portal/colleges': typeof PortalCollegesRoute
+  '/_portal/courses': typeof PortalCoursesRoute
   '/_portal/dashboard': typeof PortalDashboardRoute
+  '/_portal/live-assessment': typeof PortalLiveAssessmentRoute
   '/_portal/mcq-creator': typeof PortalMcqCreatorRoute
+  '/_portal/question-bank': typeof PortalQuestionBankRoute
   '/_portal/reports': typeof PortalReportsRoute
   '/_portal/sea-creator': typeof PortalSeaCreatorRoute
   '/_portal/staff-management': typeof PortalStaffManagementRoute
@@ -121,8 +148,11 @@ export interface FileRouteTypes {
     | '/assign-modules'
     | '/coding-creator'
     | '/colleges'
+    | '/courses'
     | '/dashboard'
+    | '/live-assessment'
     | '/mcq-creator'
+    | '/question-bank'
     | '/reports'
     | '/sea-creator'
     | '/staff-management'
@@ -133,8 +163,11 @@ export interface FileRouteTypes {
     | '/assign-modules'
     | '/coding-creator'
     | '/colleges'
+    | '/courses'
     | '/dashboard'
+    | '/live-assessment'
     | '/mcq-creator'
+    | '/question-bank'
     | '/reports'
     | '/sea-creator'
     | '/staff-management'
@@ -146,8 +179,11 @@ export interface FileRouteTypes {
     | '/_portal/assign-modules'
     | '/_portal/coding-creator'
     | '/_portal/colleges'
+    | '/_portal/courses'
     | '/_portal/dashboard'
+    | '/_portal/live-assessment'
     | '/_portal/mcq-creator'
+    | '/_portal/question-bank'
     | '/_portal/reports'
     | '/_portal/sea-creator'
     | '/_portal/staff-management'
@@ -196,6 +232,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PortalCollegesRouteImport
       parentRoute: typeof PortalRoute
     }
+    '/_portal/courses': {
+      id: '/_portal/courses'
+      path: '/courses'
+      fullPath: '/courses'
+      preLoaderRoute: typeof PortalCoursesRouteImport
+      parentRoute: typeof PortalRoute
+    }
     '/_portal/dashboard': {
       id: '/_portal/dashboard'
       path: '/dashboard'
@@ -203,11 +246,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PortalDashboardRouteImport
       parentRoute: typeof PortalRoute
     }
+    '/_portal/live-assessment': {
+      id: '/_portal/live-assessment'
+      path: '/live-assessment'
+      fullPath: '/live-assessment'
+      preLoaderRoute: typeof PortalLiveAssessmentRouteImport
+      parentRoute: typeof PortalRoute
+    }
     '/_portal/mcq-creator': {
       id: '/_portal/mcq-creator'
       path: '/mcq-creator'
       fullPath: '/mcq-creator'
       preLoaderRoute: typeof PortalMcqCreatorRouteImport
+      parentRoute: typeof PortalRoute
+    }
+    '/_portal/question-bank': {
+      id: '/_portal/question-bank'
+      path: '/question-bank'
+      fullPath: '/question-bank'
+      preLoaderRoute: typeof PortalQuestionBankRouteImport
       parentRoute: typeof PortalRoute
     }
     '/_portal/reports': {
@@ -245,8 +302,11 @@ interface PortalRouteChildren {
   PortalAssignModulesRoute: typeof PortalAssignModulesRoute
   PortalCodingCreatorRoute: typeof PortalCodingCreatorRoute
   PortalCollegesRoute: typeof PortalCollegesRoute
+  PortalCoursesRoute: typeof PortalCoursesRoute
   PortalDashboardRoute: typeof PortalDashboardRoute
+  PortalLiveAssessmentRoute: typeof PortalLiveAssessmentRoute
   PortalMcqCreatorRoute: typeof PortalMcqCreatorRoute
+  PortalQuestionBankRoute: typeof PortalQuestionBankRoute
   PortalReportsRoute: typeof PortalReportsRoute
   PortalSeaCreatorRoute: typeof PortalSeaCreatorRoute
   PortalStaffManagementRoute: typeof PortalStaffManagementRoute
@@ -257,8 +317,11 @@ const PortalRouteChildren: PortalRouteChildren = {
   PortalAssignModulesRoute: PortalAssignModulesRoute,
   PortalCodingCreatorRoute: PortalCodingCreatorRoute,
   PortalCollegesRoute: PortalCollegesRoute,
+  PortalCoursesRoute: PortalCoursesRoute,
   PortalDashboardRoute: PortalDashboardRoute,
+  PortalLiveAssessmentRoute: PortalLiveAssessmentRoute,
   PortalMcqCreatorRoute: PortalMcqCreatorRoute,
+  PortalQuestionBankRoute: PortalQuestionBankRoute,
   PortalReportsRoute: PortalReportsRoute,
   PortalSeaCreatorRoute: PortalSeaCreatorRoute,
   PortalStaffManagementRoute: PortalStaffManagementRoute,
@@ -275,3 +338,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

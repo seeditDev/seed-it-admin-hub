@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -89,11 +89,36 @@ export const Route = createFileRoute("/_portal/colleges")({
 
 const PROCTOR_MODES: ProctorMode[] = ["face+audio", "face", "audio", "off"];
 
+interface CollegeEntry { code: string; name: string; shortName: string; city: string; }
+interface SouthIndiaIndex { states: string[]; citiesByState: Record<string, string[]>; collegesByCity: Record<string, unknown[]>; }
+
+/** Flatten the south_india_index.json into a flat list of {code, name, shortName, city}. */
+function flattenCollegeIndex(data: SouthIndiaIndex): CollegeEntry[] {
+  const result: CollegeEntry[] = [];
+  if (!data?.collegesByCity) return result;
+  for (const [city, colleges] of Object.entries(data.collegesByCity)) {
+    for (const c of colleges) {
+      if (typeof c === "object" && c !== null) {
+        const entry = c as Record<string, string>;
+        if (entry['code']) result.push({ code: entry['code'], name: entry['name'] ?? entry['code'], shortName: entry['shortName'] ?? "", city });
+      } else if (typeof c === "string") {
+        const codeM = c.match(/code=([^;\s}]+)/);
+        const nameM = c.match(/name=([^;]+?)(?:;|})/);
+        const shortM = c.match(/shortName=([^;\s}]+)/);
+        if (codeM?.[1] && nameM?.[1]) result.push({ code: codeM[1].trim(), name: nameM[1].trim(), shortName: shortM?.[1]?.trim() ?? "", city });
+      }
+    }
+  }
+  return result.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 interface TenantDraft {
   id: string;
   name: string;
   slug: string;
   active: boolean;
+  /** Optional guest portal gate key for this college */
+  gateKey: string;
   settings: TenantSettings;
   isNew: boolean;
 }
@@ -108,6 +133,7 @@ function emptyTenantDraft(): TenantDraft {
     name: "",
     slug: "",
     active: true,
+    gateKey: "",
     settings: { ...DEFAULT_TENANT_SETTINGS },
     isNew: true,
   };
@@ -135,6 +161,25 @@ function CollegesPage() {
   const [pendingDelete, setPendingDelete] = useState<
     { kind: "tenant"; id: string; label: string } | { kind: "cohort"; id: string; label: string } | null
   >(null);
+
+  // South India college index
+  const [collegeIndex, setCollegeIndex] = useState<CollegeEntry[]>([]);
+  const [collegeSearch, setCollegeSearch] = useState("");
+  const [selectedCollegeEntry, setSelectedCollegeEntry] = useState<CollegeEntry | null>(null);
+  useEffect(() => {
+    fetch("/south_india_index.json").then(r => r.json()).then((data: SouthIndiaIndex) => {
+      setCollegeIndex(flattenCollegeIndex(data));
+    }).catch(() => {});
+  }, []);
+  const collegeSuggestions = useMemo(() => {
+    if (!collegeSearch || collegeSearch.length < 2 || selectedCollegeEntry) return [];
+    const q = collegeSearch.toLowerCase();
+    return collegeIndex.filter(c =>
+      c.name.toLowerCase().includes(q) ||
+      c.shortName.toLowerCase().includes(q) ||
+      c.code.toLowerCase().includes(q)
+    ).slice(0, 10);
+  }, [collegeSearch, collegeIndex, selectedCollegeEntry]);
 
   const tenantsQ = useQuery({ queryKey: ["tenants"], queryFn: listTenants });
   const usersQ = useQuery({ queryKey: ["users", "all"], queryFn: listAllUsers });
@@ -167,6 +212,7 @@ function CollegesPage() {
         name: draft.name,
         slug: draft.slug,
         active: draft.active,
+        gateKey: draft.gateKey,
         settings: draft.settings,
         isNew: draft.isNew,
       }),
@@ -216,6 +262,7 @@ function CollegesPage() {
       name: tenant.name,
       slug: tenant.slug,
       active: tenant.active,
+      gateKey: tenant.gateKey ?? "",
       settings: { ...tenant.settings },
       isNew: false,
     });
@@ -466,63 +513,89 @@ function CollegesPage() {
               </DialogHeader>
 
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="tenant-name">College name</Label>
-                  <Input
-                    id="tenant-name"
-                    className="rounded-xl"
-                    placeholder="KG Kite College of Technology"
-                    value={tenantDraft.name}
-                    onChange={(e) => {
-                      const name = e.target.value;
-                      setTenantDraft((prev) =>
-                        prev
-                          ? {
-                              ...prev,
-                              name,
-                              ...(prev.isNew
-                                ? {
-                                    slug: slugify(name),
-                                    id: slugify(name).replace(/-/g, "").slice(0, 12).toUpperCase(),
-                                  }
-                                : {}),
-                            }
-                          : prev,
-                      );
-                    }}
-                  />
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
+                {/* ── College picker (new) / Name badge (edit) ── */}
+                {tenantDraft.isNew ? (
                   <div className="space-y-2">
-                    <Label htmlFor="tenant-id">Tenant ID</Label>
-                    <Input
-                      id="tenant-id"
-                      className="rounded-xl font-mono"
-                      placeholder="KITE"
-                      disabled={!tenantDraft.isNew}
-                      value={tenantDraft.id}
-                      onChange={(e) =>
-                        setTenantDraft((prev) =>
-                          prev ? { ...prev, id: e.target.value.toUpperCase().replace(/\s+/g, "") } : prev,
-                        )
-                      }
-                    />
+                    <Label htmlFor="tenant-college-search">🏫 Select College</Label>
+                    <div className="relative">
+                      <Input
+                        id="tenant-college-search"
+                        className="rounded-xl"
+                        placeholder="Search by name, short code or state…"
+                        value={selectedCollegeEntry ? `${selectedCollegeEntry.name}` : collegeSearch}
+                        onChange={(e) => {
+                          if (selectedCollegeEntry) {
+                            setSelectedCollegeEntry(null);
+                            setTenantDraft(prev => prev ? { ...prev, id: "", name: "", slug: "", gateKey: prev.gateKey } : prev);
+                          }
+                          setCollegeSearch(e.target.value);
+                        }}
+                        autoFocus
+                      />
+                      {collegeSuggestions.length > 0 && (
+                        <div className="absolute top-full left-0 right-0 z-50 mt-1 max-h-60 overflow-y-auto rounded-xl border bg-popover shadow-xl">
+                          {collegeSuggestions.map((c) => (
+                            <div
+                              key={c.code}
+                              className="flex cursor-pointer items-center justify-between px-3 py-2.5 text-sm hover:bg-accent"
+                              onClick={() => {
+                                setSelectedCollegeEntry(c);
+                                setCollegeSearch("");
+                                setTenantDraft(prev => prev ? {
+                                  ...prev,
+                                  id: c.code,
+                                  name: c.name,
+                                  slug: slugify(c.name),
+                                } : prev);
+                              }}
+                            >
+                              <div>
+                                <div className="font-medium">{c.name}</div>
+                                <div className="text-xs text-muted-foreground">{c.city}</div>
+                              </div>
+                              <span className="ml-3 shrink-0 rounded-md bg-primary/10 px-2 py-0.5 font-mono text-xs text-primary">{c.code}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {selectedCollegeEntry ? (
+                      <div className="flex items-center gap-3 rounded-xl border bg-accent/20 px-3 py-2.5">
+                        <div className="flex-1">
+                          <div className="text-sm font-semibold">{selectedCollegeEntry.name}</div>
+                          <div className="text-xs text-muted-foreground">{selectedCollegeEntry.city} · TenantID: <code className="text-primary">{selectedCollegeEntry.code}</code></div>
+                        </div>
+                        <button
+                          type="button"
+                          className="text-xs text-muted-foreground hover:text-foreground underline"
+                          onClick={() => {
+                            setSelectedCollegeEntry(null);
+                            setCollegeSearch("");
+                            setTenantDraft(prev => prev ? { ...prev, id: "", name: "", slug: "" } : prev);
+                          }}
+                        >Change</button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Type at least 2 characters to search from the SEED college database.
+                      </p>
+                    )}
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="tenant-slug">Slug</Label>
-                    <Input
-                      id="tenant-slug"
-                      className="rounded-xl font-mono"
-                      placeholder="kite"
-                      value={tenantDraft.slug}
-                      onChange={(e) =>
-                        setTenantDraft((prev) => (prev ? { ...prev, slug: slugify(e.target.value) } : prev))
-                      }
-                    />
+                ) : (
+                  /* Edit mode — college is locked, show as read-only */
+                  <div className="space-y-1">
+                    <Label>College</Label>
+                    <div className="flex items-center gap-2 rounded-xl border bg-muted/40 px-3 py-2.5">
+                      <div className="flex-1">
+                        <div className="text-sm font-semibold">{tenantDraft.name}</div>
+                        <div className="text-xs text-muted-foreground">TenantID: <code className="text-primary">{tenantDraft.id}</code> · Slug: {tenantDraft.slug}</div>
+                      </div>
+                      <span className="text-xs text-muted-foreground">🔒 locked</span>
+                    </div>
                   </div>
-                </div>
+                )}
 
+                {/* ── Proctoring settings ── */}
                 <div className="grid gap-4 sm:grid-cols-3">
                   <div className="space-y-2">
                     <Label>Proctor mode</Label>
@@ -606,6 +679,24 @@ function CollegesPage() {
                       setTenantDraft((prev) => (prev ? { ...prev, active } : prev))
                     }
                   />
+                </div>
+
+                {/* ── GateKey ── */}
+                <div className="space-y-2">
+                  <Label htmlFor="tenant-gatekey">🔑 Guest Portal GateKey <span className="text-muted-foreground text-xs">(optional)</span></Label>
+                  <Input
+                    id="tenant-gatekey"
+                    className="rounded-xl font-mono"
+                    placeholder="e.g. KITE2025 (leave blank for open access)"
+                    value={tenantDraft.gateKey}
+                    onChange={(e) =>
+                      setTenantDraft((prev) => (prev ? { ...prev, gateKey: e.target.value } : prev))
+                    }
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    If set, guests must enter this key after selecting <strong>{tenantDraft.name || "this college"}</strong> before seeing available assessments.
+                    Share this key with your students during placement drives or events.
+                  </p>
                 </div>
               </div>
 

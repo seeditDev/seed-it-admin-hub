@@ -1,0 +1,1122 @@
+{
+  "country": "India",
+  "states": [
+    "Andhra Pradesh",
+    "Karnataka",
+    "Kerala",
+    "Lakshadweep",
+    "Puducherry",
+    "Tamil Nadu",
+    "Telangana"
+  ],
+  "citiesByState": {
+    "Andhra Pradesh": [
+      "Anantapur",
+      "Guntur",
+      "Kakinada",
+      "Tirupati",
+      "Vijayawada",
+      "Visakhapatnam"
+    ],
+    "Karnataka": ["Belagavi", "Bengaluru", "Dharwad", "Hubballi", "Mangaluru", "Manipal", "Mysuru"],
+    "Kerala": [
+      "Kochi",
+      "Kollam",
+      "Kottayam",
+      "Kozhikode",
+      "Malappuram",
+      "Thiruvananthapuram",
+      "Thrissur"
+    ],
+    "Lakshadweep": [],
+    "Puducherry": ["Puducherry"],
+    "Tamil Nadu": [
+      "Chennai",
+      "Coimbatore",
+      "Erode",
+      "Madurai",
+      "Salem",
+      "Thanjavur",
+      "Tiruchirappalli",
+      "Vellore"
+    ],
+    "Telangana": ["Hyderabad", "Warangal"]
+  },
+  "collegesMap": {
+    "Andhra Pradesh": {
+      "Anantapur": [
+        {
+          "code": "AP000001",
+          "name": "Jawaharlal Nehru Technological University Anantapur",
+          "shortName": "JNTUA"
+        }
+      ],
+      "Guntur": [
+        {
+          "code": "AP000002",
+          "name": "Acharya Nagarjuna University",
+          "shortName": "ANU"
+        },
+        {
+          "code": "AP000003",
+          "name": "Koneru Lakshmaiah Education Foundation",
+          "shortName": "KLEF"
+        }
+      ],
+      "Kakinada": [
+        {
+          "code": "AP000004",
+          "name": "Jawaharlal Nehru Technological University Kakinada",
+          "shortName": "JNTUK"
+        }
+      ],
+      "Tirupati": [
+        {
+          "code": "AP000005",
+          "name": "Indian Institute of Technology Tirupati",
+          "shortName": "IIT Tirupati"
+        },
+        {
+          "code": "AP000006",
+          "name": "Sri Padmavati Mahila Visvavidyalayam",
+          "shortName": "SPMVV"
+        },
+        {
+          "code": "AP000007",
+          "name": "Sri Venkateswara University",
+          "shortName": "SVU"
+        }
+      ],
+      "Vijayawada": [
+        {
+          "code": "AP000008",
+          "name": "VR Siddhartha Engineering College",
+          "shortName": "VRSEC"
+        }
+      ],
+      "Visakhapatnam": [
+        {
+          "code": "AP000009",
+          "name": "Andhra University",
+          "shortName": "AU Vizag"
+        },
+        {
+          "code": "AP000010",
+          "name": "Anil Neerukonda Institute of Technology and Sciences",
+          "shortName": "ANITS"
+        },
+        {
+          "code": "AP000011",
+          "name": "GITAM (Deemed to be University)",
+          "shortName": "GITAM"
+        }
+      ]
+    },
+    "Karnataka": {
+      "Belagavi": [
+        {
+          "code": "KA000001",
+          "name": "Gogte Institute of Technology",
+          "shortName": "GIT"
+        },
+        {
+          "code": "KA000002",
+          "name": "Rani Channamma University",
+          "shortName": "RCU"
+        },
+        {
+          "code": "KA000003",
+          "name": "Visvesvaraya Technological University",
+          "shortName": "VTU"
+        }
+      ],
+      "Bengaluru": [
+        {
+          "code": "KA000004",
+          "name": "Alliance University",
+          "shortName": "Alliance University"
+        },
+        {
+          "code": "KA000005",
+          "name": "Bangalore Institute of Technology",
+          "shortName": "BIT"
+        },
+        {
+          "code": "KA000006",
+          "name": "Bangalore University",
+          "shortName": "Bangalore University"
+        },
+        {
+          "code": "KA000007",
+          "name": "BMS College of Engineering",
+          "shortName": "BMSCE"
+        },
+        {
+          "code": "KA000008",
+          "name": "Christ University",
+          "shortName": "Christ University"
+        },
+        {
+          "code": "KA000009",
+          "name": "Dayananda Sagar College of Engineering",
+          "shortName": "DSCE"
+        },
+        {
+          "code": "KA000010",
+          "name": "Indian Institute of Management Bangalore",
+          "shortName": "IIMB"
+        },
+        {
+          "code": "KA000011",
+          "name": "Indian Institute of Science",
+          "shortName": "IISc"
+        },
+        {
+          "code": "KA000012",
+          "name": "Jain (Deemed-to-be University)",
+          "shortName": "Jain University"
+        },
+        {
+          "code": "KA000013",
+          "name": "M S Ramaiah Institute of Technology",
+          "shortName": "MSRIT"
+        },
+        {
+          "code": "KA000014",
+          "name": "Mount Carmel College (Autonomous)",
+          "shortName": "MCC"
+        },
+        {
+          "code": "KA000015",
+          "name": "New Horizon College of Engineering",
+          "shortName": "NHCE"
+        },
+        {
+          "code": "KA000016",
+          "name": "PES University",
+          "shortName": "PES University"
+        },
+        {
+          "code": "KA000017",
+          "name": "REVA University",
+          "shortName": "REVA"
+        },
+        {
+          "code": "KA000018",
+          "name": "RV College of Engineering",
+          "shortName": "RVCE"
+        },
+        {
+          "code": "KA000019",
+          "name": "St. Joseph's College (Autonomous)",
+          "shortName": "St. Joseph's"
+        }
+      ],
+      "Dharwad": [
+        {
+          "code": "KA000020",
+          "name": "Karnatak University",
+          "shortName": "KU Dharwad"
+        },
+        {
+          "code": "KA000021",
+          "name": "SDM College of Engineering and Technology",
+          "shortName": "SDMCET"
+        }
+      ],
+      "Hubballi": [
+        {
+          "code": "KA000022",
+          "name": "KLE Technological University",
+          "shortName": "KLE Tech"
+        }
+      ],
+      "Mangaluru": [
+        {
+          "code": "KA000023",
+          "name": "Mangalore University",
+          "shortName": "Mangalore University"
+        },
+        {
+          "code": "KA000024",
+          "name": "NMAM Institute of Technology, Nitte",
+          "shortName": "NMAMIT"
+        },
+        {
+          "code": "KA000025",
+          "name": "Sahyadri College of Engineering and Management",
+          "shortName": "Sahyadri"
+        },
+        {
+          "code": "KA000026",
+          "name": "St Aloysius (Deemed to be University)",
+          "shortName": "Aloysius"
+        }
+      ],
+      "Manipal": [
+        {
+          "code": "KA000027",
+          "name": "Manipal Academy of Higher Education",
+          "shortName": "MAHE"
+        },
+        {
+          "code": "KA000028",
+          "name": "Manipal Institute of Technology",
+          "shortName": "MIT Manipal"
+        }
+      ],
+      "Mysuru": [
+        {
+          "code": "KA000029",
+          "name": "JSS Science and Technology University",
+          "shortName": "JSS STU"
+        },
+        {
+          "code": "KA000030",
+          "name": "Maharaja's College, Mysuru (Autonomous)",
+          "shortName": "Maharaja's College"
+        },
+        {
+          "code": "KA000031",
+          "name": "National Institute of Engineering",
+          "shortName": "NIE"
+        },
+        {
+          "code": "KA000032",
+          "name": "University of Mysore",
+          "shortName": "UoM"
+        }
+      ]
+    },
+    "Kerala": {
+      "Kochi": [
+        {
+          "code": "KL000001",
+          "name": "Cochin University of Science and Technology",
+          "shortName": "CUSAT"
+        },
+        {
+          "code": "KL000002",
+          "name": "Model Engineering College",
+          "shortName": "MEC"
+        },
+        {
+          "code": "KL000003",
+          "name": "Rajagiri College of Social Sciences (Autonomous)",
+          "shortName": "Rajagiri"
+        },
+        {
+          "code": "KL000004",
+          "name": "Rajagiri School of Engineering & Technology",
+          "shortName": "RSET"
+        },
+        {
+          "code": "KL000005",
+          "name": "St. Teresa's College (Autonomous)",
+          "shortName": "St. Teresa's"
+        }
+      ],
+      "Kollam": [
+        {
+          "code": "KL000006",
+          "name": "TKM College of Engineering",
+          "shortName": "TKMCE"
+        }
+      ],
+      "Kottayam": [
+        {
+          "code": "KL000007",
+          "name": "CMS College Kottayam (Autonomous)",
+          "shortName": "CMS College"
+        },
+        {
+          "code": "KL000008",
+          "name": "Mahatma Gandhi University",
+          "shortName": "MG University"
+        }
+      ],
+      "Kozhikode": [
+        {
+          "code": "KL000009",
+          "name": "Farook College (Autonomous)",
+          "shortName": "Farook College"
+        },
+        {
+          "code": "KL000010",
+          "name": "Indian Institute of Management Kozhikode",
+          "shortName": "IIMK"
+        },
+        {
+          "code": "KL000011",
+          "name": "National Institute of Technology Calicut",
+          "shortName": "NIT Calicut"
+        }
+      ],
+      "Malappuram": [
+        {
+          "code": "KL000012",
+          "name": "University of Calicut",
+          "shortName": "Calicut University"
+        }
+      ],
+      "Thiruvananthapuram": [
+        {
+          "code": "KL000013",
+          "name": "College of Engineering Trivandrum",
+          "shortName": "CET"
+        },
+        {
+          "code": "KL000014",
+          "name": "Indian Institute of Space Science and Technology",
+          "shortName": "IIST"
+        },
+        {
+          "code": "KL000015",
+          "name": "Mar Ivanios College (Autonomous)",
+          "shortName": "Mar Ivanios"
+        },
+        {
+          "code": "KL000016",
+          "name": "University College Thiruvananthapuram (Autonomous)",
+          "shortName": "University College"
+        },
+        {
+          "code": "KL000017",
+          "name": "University of Kerala",
+          "shortName": "Kerala University"
+        }
+      ],
+      "Thrissur": [
+        {
+          "code": "KL000018",
+          "name": "Christ College, Irinjalakuda (Autonomous)",
+          "shortName": "Christ College"
+        },
+        {
+          "code": "KL000019",
+          "name": "Government Engineering College Thrissur",
+          "shortName": "GEC Thrissur"
+        }
+      ]
+    },
+    "Lakshadweep": {},
+    "Puducherry": {
+      "Puducherry": [
+        {
+          "code": "PY000001",
+          "name": "Kanchi Mamunivar Government Institute for Postgraduate Courses and Research",
+          "shortName": "Kanchi Mamunivar College"
+        },
+        {
+          "code": "PY000002",
+          "name": "Pondicherry University",
+          "shortName": "PU"
+        },
+        {
+          "code": "PY000003",
+          "name": "Puducherry Technological University",
+          "shortName": "PTU"
+        }
+      ]
+    },
+    "Tamil Nadu": {
+      "Chennai": [
+        {
+          "code": "TN000001",
+          "name": "Anna University",
+          "shortName": "AU"
+        },
+        {
+          "code": "TN000002",
+          "name": "B.S. Abdur Rahman Crescent Institute of Science and Technology",
+          "shortName": "Crescent University"
+        },
+        {
+          "code": "TN000003",
+          "name": "College of Engineering, Guindy",
+          "shortName": "CEG"
+        },
+        {
+          "code": "TN000004",
+          "name": "Ethiraj College for Women",
+          "shortName": "Ethiraj"
+        },
+        {
+          "code": "TN000005",
+          "name": "Great Lakes Institute of Management",
+          "shortName": "Great Lakes"
+        },
+        {
+          "code": "TN000006",
+          "name": "Hindustan Institute of Technology and Science",
+          "shortName": "Hindustan University"
+        },
+        {
+          "code": "TN000007",
+          "name": "Indian Institute of Technology Madras",
+          "shortName": "IIT Madras"
+        },
+        {
+          "code": "TN000008",
+          "name": "Loyola College",
+          "shortName": "Loyola"
+        },
+        {
+          "code": "TN000009",
+          "name": "Loyola Institute of Business Administration",
+          "shortName": "LIBA"
+        },
+        {
+          "code": "TN000010",
+          "name": "Madras Christian College",
+          "shortName": "MCC"
+        },
+        {
+          "code": "TN000011",
+          "name": "Madras Institute of Technology",
+          "shortName": "MIT Chennai"
+        },
+        {
+          "code": "TN000012",
+          "name": "Presidency College, Chennai",
+          "shortName": "Presidency College"
+        },
+        {
+          "code": "TN000013",
+          "name": "Sathyabama Institute of Science and Technology",
+          "shortName": "Sathyabama"
+        },
+        {
+          "code": "TN000014",
+          "name": "Sri Sivasubramaniya Nadar College of Engineering",
+          "shortName": "SSN"
+        },
+        {
+          "code": "TN000015",
+          "name": "SRM Institute of Science and Technology",
+          "shortName": "SRMIST"
+        },
+        {
+          "code": "TN000016",
+          "name": "Stella Maris College",
+          "shortName": "Stella Maris"
+        },
+        {
+          "code": "TN000017",
+          "name": "Vellore Institute of Technology, Chennai Campus",
+          "shortName": "VIT Chennai"
+        }
+      ],
+      "Coimbatore": [
+        {
+          "code": "TN000046",
+          "name": "AJK College of Arts and Science",
+          "shortName": "AJKCAS"
+        },
+        {
+          "code": "TN000045",
+          "name": "Adithya Institute of Technology",
+          "shortName": "AIT"
+        },
+        {
+          "code": "TN000047",
+          "name": "Akshaya College of Engineering and Technology",
+          "shortName": "ACET"
+        },
+        {
+          "code": "TN000048",
+          "name": "Amrita School of Engineering, Coimbatore",
+          "shortName": "Amrita Engineering"
+        },
+        {
+          "code": "TN000018",
+          "name": "Amrita Vishwa Vidyapeetham, Coimbatore",
+          "shortName": "Amrita"
+        },
+        {
+          "code": "TN000049",
+          "name": "Anna University Regional Campus - Coimbatore",
+          "shortName": "AURCC"
+        },
+        {
+          "code": "TN000050",
+          "name": "Arjun College of Technology",
+          "shortName": "ACT"
+        },
+        {
+          "code": "TN000051",
+          "name": "Asian College of Engineering and Technology",
+          "shortName": "ACET"
+        },
+        {
+          "code": "TN000052",
+          "name": "Avinashilingam Institute for Home Science and Higher Education for Women",
+          "shortName": "Avinashilingam University"
+        },
+        {
+          "code": "TN000019",
+          "name": "Bharathiar University",
+          "shortName": "BU"
+        },
+        {
+          "code": "TN000053",
+          "name": "Bishop Appasamy College of Arts and Science",
+          "shortName": "BACAS"
+        },
+        {
+          "code": "TN000054",
+          "name": "C.M.S. College of Engineering and Technology",
+          "shortName": "CMSCET"
+        },
+        {
+          "code": "TN000056",
+          "name": "CMS College of Science and Commerce",
+          "shortName": "CMS CSC"
+        },
+        {
+          "code": "TN000055",
+          "name": "Christ The King Engineering College",
+          "shortName": "CKEC"
+        },
+        {
+          "code": "TN000057",
+          "name": "Coimbatore Institute of Engineering and Technology",
+          "shortName": "CIET"
+        },
+        {
+          "code": "TN000020",
+          "name": "Coimbatore Institute of Technology",
+          "shortName": "CIT"
+        },
+        {
+          "code": "TN000058",
+          "name": "Coimbatore Marine College",
+          "shortName": "CMC Marine"
+        },
+        {
+          "code": "TN000059",
+          "name": "Coimbatore Medical College",
+          "shortName": "CMC Coimbatore"
+        },
+        {
+          "code": "TN000060",
+          "name": "Dhaanish Ahmed Institute of Technology",
+          "shortName": "DAIT"
+        },
+        {
+          "code": "TN000061",
+          "name": "Dhanalakshmi Srinivasan College of Engineering",
+          "shortName": "DSCE"
+        },
+        {
+          "code": "TN000062",
+          "name": "Dr. G.R. Damodaran College of Science",
+          "shortName": "GRDCS"
+        },
+        {
+          "code": "TN000063",
+          "name": "Dr. Mahalingam College of Engineering and Technology",
+          "shortName": "MCET"
+        },
+        {
+          "code": "TN000064",
+          "name": "Dr. N.G.P. Arts and Science College",
+          "shortName": "Dr. NGP ASC"
+        },
+        {
+          "code": "TN000065",
+          "name": "Dr. N.G.P. Institute of Technology",
+          "shortName": "Dr. NGP IT"
+        },
+        {
+          "code": "TN000066",
+          "name": "Easa College of Engineering and Technology",
+          "shortName": "ECET"
+        },
+        {
+          "code": "TN000067",
+          "name": "Government Arts College, Coimbatore",
+          "shortName": "GAC Coimbatore"
+        },
+        {
+          "code": "TN000068",
+          "name": "Government College of Technology, Coimbatore",
+          "shortName": "GCT"
+        },
+        {
+          "code": "TN000069",
+          "name": "Government Law College, Coimbatore",
+          "shortName": "GLC Coimbatore"
+        },
+        {
+          "code": "TN000070",
+          "name": "Government Medical College and ESIC Hospital, Coimbatore",
+          "shortName": "ESIC Medical College"
+        },
+        {
+          "code": "TN000071",
+          "name": "Hindusthan College of Arts and Science",
+          "shortName": "HICAS"
+        },
+        {
+          "code": "TN000072",
+          "name": "Hindusthan College of Engineering and Technology",
+          "shortName": "HICET"
+        },
+        {
+          "code": "TN000073",
+          "name": "Hindusthan Institute of Technology",
+          "shortName": "HIT"
+        },
+        {
+          "code": "TN000074",
+          "name": "Info Institute of Engineering",
+          "shortName": "IIE"
+        },
+        {
+          "code": "TN000075",
+          "name": "J.C.T. College of Engineering and Technology",
+          "shortName": "JCTCET"
+        },
+        {
+          "code": "TN000076",
+          "name": "Jansons Institute of Technology",
+          "shortName": "JIT"
+        },
+        {
+          "code": "TN000084",
+          "name": "KGISL Institute of Technology",
+          "shortName": "KITE"
+        },
+        {
+          "code": "TN000085",
+          "name": "KMCH Institute of Health Sciences and Research",
+          "shortName": "KMCH IHSR"
+        },
+        {
+          "code": "TN000087",
+          "name": "KPR Institute of Engineering and Technology",
+          "shortName": "KPRIET"
+        },
+        {
+          "code": "TN000077",
+          "name": "Kalaignarkarunanidhi Institute of Technology",
+          "shortName": "KIT"
+        },
+        {
+          "code": "TN000078",
+          "name": "Karpagam Academy of Higher Education",
+          "shortName": "KAHE"
+        },
+        {
+          "code": "TN000079",
+          "name": "Karpagam College of Engineering",
+          "shortName": "KCE"
+        },
+        {
+          "code": "TN000080",
+          "name": "Karpagam Faculty of Medical Sciences and Research",
+          "shortName": "KFMSR"
+        },
+        {
+          "code": "TN000081",
+          "name": "Karpagam Institute of Technology",
+          "shortName": "KIT Coimbatore"
+        },
+        {
+          "code": "TN000082",
+          "name": "Karunya Institute of Technology and Sciences",
+          "shortName": "Karunya"
+        },
+        {
+          "code": "TN000083",
+          "name": "Kathir College of Engineering",
+          "shortName": "Kathir"
+        },
+        {
+          "code": "TN000086",
+          "name": "Kongunadu Arts and Science College",
+          "shortName": "KASC"
+        },
+        {
+          "code": "TN000021",
+          "name": "Kumaraguru College of Technology",
+          "shortName": "KCT"
+        },
+        {
+          "code": "TN000088",
+          "name": "Nehru Arts and Science College",
+          "shortName": "NASC"
+        },
+        {
+          "code": "TN000089",
+          "name": "Nehru Institute of Engineering and Technology",
+          "shortName": "NIET"
+        },
+        {
+          "code": "TN000090",
+          "name": "Nehru Institute of Technology",
+          "shortName": "NIT Coimbatore"
+        },
+        {
+          "code": "TN000091",
+          "name": "Nirmala College for Women",
+          "shortName": "Nirmala"
+        },
+        {
+          "code": "TN000092",
+          "name": "P.A. College of Engineering and Technology",
+          "shortName": "PACET"
+        },
+        {
+          "code": "TN000096",
+          "name": "PPG Institute of Technology",
+          "shortName": "PPGIT"
+        },
+        {
+          "code": "TN000022",
+          "name": "PSG College of Arts and Science",
+          "shortName": "PSG CAS"
+        },
+        {
+          "code": "TN000023",
+          "name": "PSG College of Technology",
+          "shortName": "PSG Tech"
+        },
+        {
+          "code": "TN000024",
+          "name": "PSG Institute of Management",
+          "shortName": "PSGIM"
+        },
+        {
+          "code": "TN000097",
+          "name": "PSG Institute of Medical Sciences and Research",
+          "shortName": "PSG IMS&R"
+        },
+        {
+          "code": "TN000098",
+          "name": "PSG Institute of Technology and Applied Research",
+          "shortName": "PSG iTech"
+        },
+        {
+          "code": "TN000025",
+          "name": "PSGR Krishnammal College for Women",
+          "shortName": "PSGRKCW"
+        },
+        {
+          "code": "TN000093",
+          "name": "Park College of Engineering and Technology",
+          "shortName": "PCET"
+        },
+        {
+          "code": "TN000094",
+          "name": "Park College of Technology",
+          "shortName": "PCT"
+        },
+        {
+          "code": "TN000095",
+          "name": "Pollachi Institute of Engineering and Technology",
+          "shortName": "PIE Tech"
+        },
+        {
+          "code": "TN000102",
+          "name": "RVS College of Engineering and Technology",
+          "shortName": "RVSCET"
+        },
+        {
+          "code": "TN000099",
+          "name": "Ranganathan Engineering College",
+          "shortName": "REC Coimbatore"
+        },
+        {
+          "code": "TN000100",
+          "name": "Rathinam College of Arts and Science",
+          "shortName": "RCAS"
+        },
+        {
+          "code": "TN000101",
+          "name": "Rathinam Technical Campus",
+          "shortName": "RTC"
+        },
+        {
+          "code": "TN000104",
+          "name": "SNS College of Engineering",
+          "shortName": "SNSCE"
+        },
+        {
+          "code": "TN000105",
+          "name": "SNS College of Technology",
+          "shortName": "SNSCT"
+        },
+        {
+          "code": "TN000119",
+          "name": "SVS College of Engineering",
+          "shortName": "SVSCE"
+        },
+        {
+          "code": "TN000103",
+          "name": "Sankara College of Science and Commerce",
+          "shortName": "Sankara"
+        },
+        {
+          "code": "TN000106",
+          "name": "Sri Eshwar College of Engineering",
+          "shortName": "SECE"
+        },
+        {
+          "code": "TN000107",
+          "name": "Sri Guru Institute of Technology",
+          "shortName": "SGIT"
+        },
+        {
+          "code": "TN000108",
+          "name": "Sri Krishna Arts and Science College",
+          "shortName": "SKASC"
+        },
+        {
+          "code": "TN000026",
+          "name": "Sri Krishna College of Engineering and Technology",
+          "shortName": "SKCET"
+        },
+        {
+          "code": "TN000109",
+          "name": "Sri Krishna College of Technology",
+          "shortName": "SKCT"
+        },
+        {
+          "code": "TN000110",
+          "name": "Sri Ramakrishna College of Arts and Science",
+          "shortName": "SRCAS"
+        },
+        {
+          "code": "TN000111",
+          "name": "Sri Ramakrishna College of Arts and Science for Women",
+          "shortName": "SRCW"
+        },
+        {
+          "code": "TN000112",
+          "name": "Sri Ramakrishna Dental College and Hospital",
+          "shortName": "SRDCH"
+        },
+        {
+          "code": "TN000113",
+          "name": "Sri Ramakrishna Engineering College",
+          "shortName": "SREC"
+        },
+        {
+          "code": "TN000114",
+          "name": "Sri Ramakrishna Institute of Technology",
+          "shortName": "SRIT"
+        },
+        {
+          "code": "TN000115",
+          "name": "Sri Ranganathar Institute of Engineering and Technology",
+          "shortName": "SRIET"
+        },
+        {
+          "code": "TN000116",
+          "name": "Sri Shakthi Institute of Engineering and Technology",
+          "shortName": "Sri Shakthi"
+        },
+        {
+          "code": "TN000117",
+          "name": "Study World College of Engineering",
+          "shortName": "SWCE"
+        },
+        {
+          "code": "TN000118",
+          "name": "Suguna College of Engineering",
+          "shortName": "SCE"
+        },
+        {
+          "code": "TN000120",
+          "name": "Tamil Nadu Agricultural University",
+          "shortName": "TNAU"
+        },
+        {
+          "code": "TN000121",
+          "name": "Tamilnadu College of Engineering",
+          "shortName": "TCE"
+        },
+        {
+          "code": "TN000122",
+          "name": "United Institute of Technology",
+          "shortName": "UIT"
+        },
+        {
+          "code": "TN000123",
+          "name": "VLB Janakiammal College of Arts and Science",
+          "shortName": "VLBJCAS"
+        },
+        {
+          "code": "TN000124",
+          "name": "VLB Janakiammal College of Engineering and Technology",
+          "shortName": "VLBJCET"
+        }
+      ],
+      "Erode": [
+        {
+          "code": "TN000027",
+          "name": "Erode Sengunthar Engineering College",
+          "shortName": "ESEC"
+        },
+        {
+          "code": "TN000028",
+          "name": "Kongu Engineering College",
+          "shortName": "KEC"
+        }
+      ],
+      "Madurai": [
+        {
+          "code": "TN000029",
+          "name": "American College",
+          "shortName": "AC"
+        },
+        {
+          "code": "TN000030",
+          "name": "Fatima College",
+          "shortName": "Fatima"
+        },
+        {
+          "code": "TN000031",
+          "name": "Lady Doak College",
+          "shortName": "LDC"
+        },
+        {
+          "code": "TN000032",
+          "name": "Madurai Kamaraj University",
+          "shortName": "MKU"
+        },
+        {
+          "code": "TN000033",
+          "name": "Thiagarajar College of Engineering",
+          "shortName": "TCE"
+        }
+      ],
+      "Salem": [
+        {
+          "code": "TN000034",
+          "name": "Government College of Engineering, Salem",
+          "shortName": "GCE Salem"
+        },
+        {
+          "code": "TN000035",
+          "name": "Vinayaka Mission's Research Foundation",
+          "shortName": "VMRF"
+        }
+      ],
+      "Thanjavur": [
+        {
+          "code": "TN000036",
+          "name": "SASTRA Deemed University",
+          "shortName": "SASTRA"
+        }
+      ],
+      "Tiruchirappalli": [
+        {
+          "code": "TN000037",
+          "name": "Bharathidasan University",
+          "shortName": "BDU"
+        },
+        {
+          "code": "TN000038",
+          "name": "Bishop Heber College",
+          "shortName": "BHC"
+        },
+        {
+          "code": "TN000039",
+          "name": "Indian Institute of Management Tiruchirappalli",
+          "shortName": "IIM Trichy"
+        },
+        {
+          "code": "TN000040",
+          "name": "National Institute of Technology, Tiruchirappalli",
+          "shortName": "NIT Trichy"
+        },
+        {
+          "code": "TN000041",
+          "name": "St. Joseph's College (Autonomous), Tiruchirappalli",
+          "shortName": "St. Joseph's"
+        }
+      ],
+      "Vellore": [
+        {
+          "code": "TN000042",
+          "name": "Auxilium College",
+          "shortName": "Auxilium"
+        },
+        {
+          "code": "TN000043",
+          "name": "Vellore Institute of Technology",
+          "shortName": "VIT"
+        },
+        {
+          "code": "TN000044",
+          "name": "Voorhees College",
+          "shortName": "Voorhees"
+        }
+      ]
+    },
+    "Telangana": {
+      "Hyderabad": [
+        {
+          "code": "TS000001",
+          "name": "Birla Institute of Technology and Science, Pilani - Hyderabad Campus",
+          "shortName": "BITS Hyderabad"
+        },
+        {
+          "code": "TS000002",
+          "name": "Chaitanya Bharathi Institute of Technology",
+          "shortName": "CBIT"
+        },
+        {
+          "code": "TS000003",
+          "name": "Indian Institute of Technology Hyderabad",
+          "shortName": "IIT Hyderabad"
+        },
+        {
+          "code": "TS000004",
+          "name": "Indian School of Business",
+          "shortName": "ISB"
+        },
+        {
+          "code": "TS000005",
+          "name": "International Institute of Information Technology, Hyderabad",
+          "shortName": "IIIT-H"
+        },
+        {
+          "code": "TS000006",
+          "name": "Jawaharlal Nehru Technological University Hyderabad",
+          "shortName": "JNTUH"
+        },
+        {
+          "code": "TS000007",
+          "name": "Osmania University",
+          "shortName": "OU"
+        },
+        {
+          "code": "TS000008",
+          "name": "University of Hyderabad",
+          "shortName": "UoH"
+        },
+        {
+          "code": "TS000009",
+          "name": "Vasavi College of Engineering",
+          "shortName": "VCE"
+        }
+      ],
+      "Warangal": [
+        {
+          "code": "TS000010",
+          "name": "Kakatiya University",
+          "shortName": "KU"
+        },
+        {
+          "code": "TS000011",
+          "name": "National Institute of Technology Warangal",
+          "shortName": "NIT Warangal"
+        }
+      ]
+    }
+  }
+}
