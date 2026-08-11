@@ -152,8 +152,8 @@ export async function provisionAccount(
       const existing = await getDocs(
         query(collection(getDb(), USERS), where("email", "==", email))
       );
-      if (!existing.empty) {
-        const existingDoc = existing.docs[0];
+      if (!existing.empty && existing.docs.length > 0) {
+        const existingDoc = existing.docs[0]!;
         const storedUid = String((existingDoc.data() as Record<string, unknown>)['uid'] ?? existingDoc.id);
         // Use the stored uid only if it looks like a real Firebase UID (not a sanitized email)
         if (storedUid && !storedUid.includes('_at_') && !storedUid.includes('.')) {
