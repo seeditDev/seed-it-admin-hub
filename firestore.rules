@@ -1,4 +1,4 @@
-﻿rules_version = '2';
+rules_version = '2';
 
 // ════════════════════════════════════════════════════════════════════════════
 // SEED-IT Platform — Master Firestore Security Rules
@@ -109,10 +109,6 @@ service cloud.firestore {
         allow read, write: if isUser(userId) || isStaffOrAdmin();
       }
 
-      match /multiSectionAttempts/{attemptId} {
-        allow read, write: if isUser(userId) || isStaffOrAdmin();
-      }
-
       match /courseProgress/{courseId} {
         allow read, write: if isUser(userId) || isStaffOrAdmin();
       }
@@ -123,11 +119,12 @@ service cloud.firestore {
     }
 
     // ════════════════════════════════════════════════════════════════════════
-    // CollectionGroup: contestAttempts & multiSectionAttempts
+    // CollectionGroup: contestAttempts — UNIFIED single attempt collection
     //
-    // REQUIRED for Live Assessment Monitor (collectionGroup queries).
-    // Firestore evaluates collectionGroup rules independently from the
-    // subcollection rules above — both must exist.
+    // All assessment types (MCQ, Coding, MSA) write live session state to
+    //   users/{userId}/contestAttempts/{assessmentId}
+    // via assessmentSessionService.js. The Live Assessment Monitor queries
+    // this single collectionGroup — no parallel fetch needed.
     //
     // FIX P0-3: write scoped to owning user (path[1] == uid) or portal.
     // Any signed-in user can NO LONGER overwrite another student's attempt.
@@ -138,9 +135,12 @@ service cloud.firestore {
       allow write: if (isSignedIn() && isUser(path[1])) || isStaffOrAdmin();
     }
 
+    // CollectionGroup: multiSectionAttempts — LEGACY read-only (deprecated)
+    // No code writes here any more; kept as read-only so old attempt docs
+    // (if any exist) can still be read by portal staff.
     match /{path=**}/multiSectionAttempts/{attemptId} {
       allow read:  if isStaffOrAdmin() || (isSignedIn() && isUser(path[1]));
-      allow write: if (isSignedIn() && isUser(path[1])) || isStaffOrAdmin();
+      allow write: if false; // deprecated — all new writes go to contestAttempts
     }
 
     // ════════════════════════════════════════════════════════════════════════
