@@ -48,6 +48,8 @@ export interface TenantCourseTest {
   audioProctored: boolean;
   guestEnabled: boolean;
   schedule: Partial<ScheduleConfig>;
+  years?: string[];
+  targetYears?: string[];
   assignedAt?: unknown;
 }
 
@@ -109,6 +111,11 @@ export async function listTenantCourseTests(
 
   return snap.docs.map((d) => {
     const raw = d.data() as Record<string, unknown>;
+    const rawYears = Array.isArray(raw["years"])
+      ? (raw["years"] as string[])
+      : Array.isArray(raw["targetYears"])
+      ? (raw["targetYears"] as string[])
+      : [];
     return {
       testId: d.id,
       tenantId,
@@ -125,10 +132,13 @@ export async function listTenantCourseTests(
       audioProctored: Boolean(raw["audioProctored"]),
       guestEnabled: Boolean(raw["guestEnabled"]),
       schedule: (raw["schedule"] ?? {}) as Partial<ScheduleConfig>,
+      years: rawYears,
+      targetYears: rawYears,
       assignedAt: raw["assignedAt"],
     } satisfies TenantCourseTest;
   });
 }
+
 
 /**
  * Sync tenantCourses for a test across multiple tenants.

@@ -389,6 +389,7 @@ export async function saveTest(
   // ── Sync tenantCourses (non-blocking, best-effort) ──
   // For all tenants in targeting.tenantIds, upsert the test summary.
   // On guest-toggle changes this keeps the guest portal list current.
+  const targetYears = input.targeting?.years ?? [];
   void syncTenantCourseTests(
     [], // no previous tracking on plain save — we only add, never remove
     (input.targeting?.tenantIds ?? []),
@@ -407,6 +408,8 @@ export async function saveTest(
       audioProctored: input.audioProctored,
       guestEnabled: Boolean(input.guestEnabled),
       schedule: input.schedule ?? {},
+      years: targetYears,
+      targetYears: targetYears,
     },
   ).catch((e: unknown) => console.warn("[courses] tenantCourses sync failed (non-fatal):", e));
 
@@ -449,6 +452,7 @@ export async function updateTestTargeting(
   const snap = await getDoc(ref).catch(() => null);
   if (snap?.exists()) {
     const d = snap.data() as Record<string, unknown>;
+    const tYears = targeting.years ?? [];
     void syncTenantCourseTests(
       prevIds,
       targeting.tenantIds ?? [],
@@ -467,10 +471,13 @@ export async function updateTestTargeting(
         audioProctored: Boolean(d["audioProctored"]),
         guestEnabled: Boolean(d["guestEnabled"]),
         schedule: (d["schedule"] ?? {}) as import("@/lib/firestore/courses").ScheduleConfig,
+        years: tYears,
+        targetYears: tYears,
       },
     ).catch((e: unknown) => console.warn("[courses] tenantCourses targeting sync failed:", e));
   }
 }
+
 
 /**
  * Get a JSON snapshot of a test document matching the old access_control.json module shape.
