@@ -15,6 +15,9 @@ import type { Cohort, Tenant, TenantSettings } from "@/types/seedit";
 import { DEFAULT_TENANT_SETTINGS } from "@/types/seedit";
 
 const TENANTS = "tenants";
+/** Minimal public projection — fields safe for unauthenticated reads. */
+const PUBLIC_TENANTS = "publicTenants";
+
 
 function normaliseSettings(raw: unknown): TenantSettings {
   const s = (raw ?? {}) as Partial<TenantSettings>;
@@ -54,6 +57,8 @@ export async function upsertTenant(input: {
   isNew: boolean;
 }): Promise<void> {
   const ref = doc(getDb(), TENANTS, input.id);
+  const pubRef = doc(getDb(), PUBLIC_TENANTS, input.id);
+
   if (input.isNew) {
     const existing = await getDoc(ref);
     if (existing.exists()) throw new Error(`Tenant "${input.id}" already exists.`);
@@ -66,6 +71,13 @@ export async function upsertTenant(input: {
       settings: input.settings,
       createdAt: serverTimestamp(),
     });
+    // Write safe public projection (no gateKey/settings)
+    await setDoc(pubRef, {
+      name: input.name,
+      slug: input.slug,
+      active: input.active,
+      updatedAt: serverTimestamp(),
+    }, { merge: true });
     return;
   }
   await updateDoc(ref, {
@@ -75,13 +87,24 @@ export async function upsertTenant(input: {
     gateKey: input.gateKey ?? "",
     settings: input.settings,
   });
+  // Keep public projection in sync
+  await setDoc(pubRef, {
+    name: input.name,
+    slug: input.slug,
+    active: input.active,
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
 }
+
 
 export async function deleteTenant(tenantId: string): Promise<void> {
   const cohorts = await getDocs(collection(getDb(), TENANTS, tenantId, "cohorts"));
   await Promise.all(cohorts.docs.map((c) => deleteDoc(c.ref)));
   await deleteDoc(doc(getDb(), TENANTS, tenantId));
+  // Remove public projection too
+  await deleteDoc(doc(getDb(), PUBLIC_TENANTS, tenantId)).catch(() => {});
 }
+
 
 export async function listCohorts(tenantId: string): Promise<Cohort[]> {
   if (!tenantId) return [];
