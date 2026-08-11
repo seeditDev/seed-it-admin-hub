@@ -1,198 +1,400 @@
 ﻿rules_version = '2';
+
+// ════════════════════════════════════════════════════════════════════════════
+// SEED-IT Platform — Master Firestore Security Rules
+//
+// Shared by:
+//   • SEED Admin Portal  (SEEDADMIN-LOVABLE)
+//   • SEED SEB Platform  (seed-website-desktop-edition)
+//
+// Deploy: firebase deploy --only firestore:rules
+//         (place this file at the Firebase project root as firestore.rules)
+// ════════════════════════════════════════════════════════════════════════════
+
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isSignedIn() { return request.auth != null; }
-    function isUser(userId) { return isSignedIn() && request.auth.uid == userId; }
-    function role() {
+    // ════════════════════════════════════════════════════════════════════════
+    // Helper Functions
+    // ════════════════════════════════════════════════════════════════════════
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isUser(userId) {
+      return isSignedIn() && (
+        request.auth.uid == userId ||
+        request.auth.token.email == userId
+      );
+    }
+
+    function myProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasProfile() {
       return isSignedIn()
-        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get("role", "student")
-        : "anonymous";
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid));
     }
-    function isAdmin() { return role() == "admin" || role() == "superadmin"; }
-    function isStaff() { return role() == "staff"; }
-    function isStaffOrAdmin() { return isAdmin() || isStaff(); }
+
+    function myRole() {
+      return hasProfile()
+        ? myProfile().role
+        : (isSignedIn() ? request.auth.token.get('role', 'none') : 'none');
+    }
+
+    function isAdmin() {
+      return myRole() == 'admin' || myRole() == 'superadmin';
+    }
+
+    function isStaff() {
+      return myRole() == 'staff';
+    }
+
+    function isPortal() {
+      return isAdmin() || isStaff();
+    }
+
+    function isStaffOrAdmin() {
+      return isPortal();
+    }
+
+    function myTenant() {
+      return hasProfile() ? myProfile().get('tenantId', '') : '';
+    }
+
     function tenantAllowed(tenantId) {
-      return isAdmin() ||
-        (isStaff() &&
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get("tenantId", "") == tenantId);
+      return isAdmin() || (isStaff() && tenantId == myTenant());
     }
 
+    function isTenantUser(tenantId) {
+      return isSignedIn() && (
+        myProfile().get('tenantId', '') == tenantId ||
+        myProfile().get('college', '')  == tenantId ||
+        isAdmin()
+      );
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
     // 1. Users
-    match /users/{userId} {
-      allow read: if isUser(userId) || isStaffOrAdmin();
-      allow create: if isAdmin();
-      allow update: if isUser(userId) || isAdmin();
-      allow delete: if isAdmin();
-      match /assessmentAttempts/{attemptId} { allow read, write: if isUser(userId) || isStaffOrAdmin(); }
-      match /contestAttempts/{attemptId}    { allow read, write: if isUser(userId) || isStaffOrAdmin(); }
-      match /multiSectionAttempts/{attemptId} { allow read, write: if isUser(userId) || isStaffOrAdmin(); }
-    }
+    // ════════════════════════════════════════════════════════════════════════
 
-    // 2. Tenants / Colleges - public read for Guest Portal gateKey fetch
-    match /tenants/{tenantId} {
-      allow read: if true;
-      allow create: if isAdmin();
-      allow update: if isAdmin() || (isStaff() && tenantAllowed(tenantId));
+    match /users/{userId} {
+      allow get: if isSignedIn() && (request.auth.uid == userId || isPortal());
+      allow list: if isPortal();
+
+      allow create: if isAdmin()
+        || (isStaff()
+            && request.resource.data.role == 'student'
+            && request.resource.data.tenantId == myTenant())
+        || (isSignedIn() && request.auth.uid == userId
+            && request.resource.data.role == 'student');
+
+      allow update: if isAdmin()
+        || (isStaff() && tenantAllowed(resource.data.tenantId)
+            && request.resource.data.role == resource.data.role)
+        || (isSignedIn() && request.auth.uid == userId
+            && request.resource.data.role     == resource.data.role
+            && request.resource.data.tenantId == resource.data.tenantId
+            && request.resource.data.get('premium', false) == resource.data.get('premium', false));
+
       allow delete: if isAdmin();
-      match /cohorts/{cohortId} {
-        allow read: if true;
-        allow write: if isAdmin() || (isStaff() && tenantAllowed(tenantId));
+
+      match /assessmentAttempts/{attemptId} {
+        allow read, write: if isUser(userId) || isStaffOrAdmin();
+      }
+
+      match /contestAttempts/{attemptId} {
+        allow read, write: if isUser(userId) || isStaffOrAdmin();
+      }
+
+      match /multiSectionAttempts/{attemptId} {
+        allow read, write: if isUser(userId) || isStaffOrAdmin();
+      }
+
+      match /courseProgress/{courseId} {
+        allow read, write: if isUser(userId) || isStaffOrAdmin();
       }
     }
 
-    // 3. Courses hierarchy
+    // ════════════════════════════════════════════════════════════════════════
+    // CollectionGroup: contestAttempts & multiSectionAttempts
+    //
+    // REQUIRED for Live Assessment Monitor which runs:
+    //   collectionGroup(db, "contestAttempts") across ALL users
+    //   collectionGroup(db, "multiSectionAttempts") across ALL users
+    //
+    // Firestore evaluates collectionGroup rules independently from
+    // the subcollection rules above — both must exist.
+    // ════════════════════════════════════════════════════════════════════════
+
+    match /{path=**}/contestAttempts/{attemptId} {
+      allow read: if isStaffOrAdmin() || (isSignedIn() && path[1] == request.auth.uid);
+      allow write: if isSignedIn();
+    }
+
+    match /{path=**}/multiSectionAttempts/{attemptId} {
+      allow read: if isStaffOrAdmin() || (isSignedIn() && path[1] == request.auth.uid);
+      allow write: if isSignedIn();
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // 2. Tenants & Cohorts
+    //    Public read so GuestPortal can fetch gateKey without auth token.
+    // ════════════════════════════════════════════════════════════════════════
+
+    match /tenants/{tenantId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+
+      match /cohorts/{cohortId} {
+        allow read: if true;
+        allow create, delete: if isAdmin();
+        allow update: if isAdmin() || (isStaff() && tenantId == myTenant());
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // 3. Assessments (legacy top-level collection)
+    // ════════════════════════════════════════════════════════════════════════
+
+    match /assessments/{assessmentId} {
+      allow read: if isSignedIn();
+      allow read: if resource.data.guestEnabled == true;
+      allow create, update, delete: if isPortal();
+
+      match /{document=**} {
+        allow read: if isSignedIn() || resource.data.guestEnabled == true;
+        allow write: if isPortal();
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // 4. Assessment Results (v2 canonical path)
+    //    assessmentResults/{testId}/students/{userId}
+    //    assessmentResults/{testId}/guests/{guestId}
+    // ════════════════════════════════════════════════════════════════════════
+
+    match /assessmentResults/{assessmentId} {
+      allow read: if isPortal();
+      allow write: if isAdmin();
+
+      match /students/{userId} {
+        allow read:           if isPortal() || request.auth.uid == userId;
+        allow create, update: if (isSignedIn() && request.auth.uid == userId) || isPortal();
+        allow delete:         if isAdmin();
+      }
+
+      match /guests/{guestId} {
+        allow create: if true;
+        allow read:   if isStaffOrAdmin() || request.auth == null || request.auth != null;
+        allow update, delete: if isStaffOrAdmin();
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // 5. Proctoring Logs
+    // ════════════════════════════════════════════════════════════════════════
+
+    match /proctoringLogs/{attemptId} {
+      allow read: if isPortal();
+      allow write: if isSignedIn();
+
+      match /events/{eventId} {
+        allow read:   if isPortal();
+        allow create: if isSignedIn();
+        allow update: if false;
+        allow delete: if isAdmin();
+      }
+    }
+
+    match /proctor_logs/{studentId}/{testId}/{docId=**} {
+      allow read, write: if isSignedIn();
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // 6. Module Assignments
+    // ════════════════════════════════════════════════════════════════════════
+
+    match /moduleAssignments/{assignmentId} {
+      allow read: if isSignedIn();
+      allow write: if isPortal();
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // 7. Courses / Series / Tests
+    //    courses/{courseId}/series/{seriesId}/tests/{testId}
+    // ════════════════════════════════════════════════════════════════════════
+
     match /courses/{courseId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow create, update, delete: if isPortal();
+
       match /series/{seriesId} {
         allow read: if isSignedIn();
-        allow write: if isAdmin();
+        allow create, update, delete: if isPortal();
+
         match /tests/{testId} {
+          allow read: if isSignedIn() || resource.data.guestEnabled == true;
+          allow create, update, delete: if isPortal();
+        }
+
+        match /_meta/{trackerId} {
           allow read: if isSignedIn();
-          allow write: if isAdmin();
+          allow write: if isPortal();
         }
       }
     }
 
-    // 4. Assessments (MCQ / Coding / SEA question sets)
-    match /assessments/{assessmentId} {
+    // CollectionGroup: tests — findTestByCode (guest portal, unauthenticated)
+    match /{path=**}/tests/{testId} {
+      allow read: if true;
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // 8. Coding Challenges Bank
+    // ════════════════════════════════════════════════════════════════════════
+
+    match /codingChallenges/{challengeId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow create, update, delete: if isPortal();
     }
 
-    // 5. Assessment Results (v2 canonical path)
-    match /assessmentResults/{testId} {
-      allow read: if isStaffOrAdmin();
-      allow write: if false;
-      match /students/{userId} {
-        allow read: if isUser(userId) || isStaffOrAdmin();
-        allow create: if isSignedIn();
-        allow update: if isUser(userId) || isStaffOrAdmin();
-        allow delete: if isAdmin();
-      }
-      match /guests/{guestId} {
-        allow read: if true;
-        allow create: if true;
-        allow update, delete: if isAdmin();
-      }
-    }
+    // ════════════════════════════════════════════════════════════════════════
+    // 9. Content URLs Registry
+    // ════════════════════════════════════════════════════════════════════════
 
-    // 6. Question Bank
-    match /questionBank/{bankId} {
+    match /contentUrls/{urlId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin();
-      match /questions/{questionId} {
-        allow read: if isSignedIn();
-        allow write: if isAdmin();
-      }
+      allow create, update, delete: if isPortal();
     }
 
-    // 7. MCQ Banks
-    match /mcqBanks/{bankId} {
+    // ════════════════════════════════════════════════════════════════════════
+    // 10. Coding Progress (SEB practice tracking)
+    // ════════════════════════════════════════════════════════════════════════
+
+    match /codingProgress/{docId} {
+      allow read, write: if isSignedIn();
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // 11. User Solutions (accepted + all submissions)
+    //     userSolutions/{uid}/solutions/{questionId}
+    //     userSolutions/{uid}/allSubmissions/{autoId}
+    // ════════════════════════════════════════════════════════════════════════
+
+    match /userSolutions/{uid}/{sub=**} {
+      allow read, write: if isUser(uid) || isStaffOrAdmin();
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // 12. Question Bank (MCQ questions)
+    // ════════════════════════════════════════════════════════════════════════
+
+    match /questionBank/{questionId} {
       allow read: if isSignedIn();
-      allow write: if isAdmin();
-      match /questions/{questionId} {
-        allow read: if isSignedIn();
-        allow write: if isAdmin();
-      }
+      allow create, update, delete: if isPortal();
     }
 
-    // 8. Coding Bank
-    match /codingBank/{challengeId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
+    // ════════════════════════════════════════════════════════════════════════
+    // 13. Live Presence (SEB session heartbeat)
+    // ════════════════════════════════════════════════════════════════════════
 
-    // 9. Contest Attempts (SEB coding sandbox)
-    match /contestAttempts/{attemptId} {
-      allow read: if isSignedIn();
-      allow create, update: if isSignedIn();
-      allow delete: if isStaffOrAdmin();
-    }
-
-    // 10. Multi-Section Attempts (MSA)
-    match /multiSectionAttempts/{attemptId} {
-      allow read: if isSignedIn();
-      allow create, update: if isSignedIn();
-      allow delete: if isStaffOrAdmin();
-    }
-
-    // 11. Live Assessment Monitor
-    match /liveAssessments/{sessionId} {
-      allow read: if isSignedIn();
-      allow create, update: if isSignedIn();
-      allow delete: if isStaffOrAdmin();
-    }
-
-    // 12. Live Presence
     match /livePresence/{dateStr}/sessions/{sessionId} {
       allow read: if isSignedIn();
       allow create, update: if isSignedIn();
       allow delete: if isStaffOrAdmin();
     }
 
-    // 13. System Config
+    // ════════════════════════════════════════════════════════════════════════
+    // 14. System Config
+    // ════════════════════════════════════════════════════════════════════════
+
     match /systemConfig/{docId} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
     }
 
-    // 14. User API Keys
+    // ════════════════════════════════════════════════════════════════════════
+    // 15. User API Keys (Gemini / NVIDIA keys)
+    // ════════════════════════════════════════════════════════════════════════
+
     match /userApiKeys/{userEmail} {
       allow read, write: if isSignedIn() && request.auth.token.email == userEmail;
       allow read, delete: if isAdmin();
     }
 
-    // 15. Content URLs
-    match /contentUrls/{slugId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
+    // ════════════════════════════════════════════════════════════════════════
+    // 16. Tenant Courses — per-college test registry
+    //
+    //   tenantCourses/{tenantId}/tests/{testId}
+    //
+    //   Public read: guest portal (unauthenticated) reads this to show
+    //   available assessments for a selected college without Firebase Auth.
+    //   Portal write: admin always; staff only for their tenant.
+    // ════════════════════════════════════════════════════════════════════════
 
-    // 16. Tenant Courses - per-college test registry (public read for guest portal)
     match /tenantCourses/{tenantId} {
       allow read: if true;
-      allow write: if false;
+      allow write: if isAdmin();
+
       match /tests/{testId} {
+        allow read: if true;
+        allow create, update: if isAdmin() || (isStaff() && tenantAllowed(tenantId));
+        allow delete: if isAdmin() || (isStaff() && tenantAllowed(tenantId));
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════════════════
+    // 17. Guest Assessment Registry (legacy tenantAssessments)
+    //
+    //   tenantAssessments/{tenantId}/guestTests/{testId}
+    // ════════════════════════════════════════════════════════════════════════
+
+    match /tenantAssessments/{tenantId} {
+      allow read: if true;
+      allow write: if isAdmin();
+
+      match /guestTests/{testId} {
         allow read: if true;
         allow write: if isAdmin() || (isStaff() && tenantAllowed(tenantId));
         allow delete: if isAdmin() || (isStaff() && tenantAllowed(tenantId));
       }
     }
 
-    // 17. Tenant Results - per-college denormalized results for staff reports
+    // ════════════════════════════════════════════════════════════════════════
+    // 18. Tenant Results — denormalized per-college results
+    //
+    //   tenantResults/{tenantId}/results/{autoId}
+    // ════════════════════════════════════════════════════════════════════════
+
     match /tenantResults/{tenantId} {
-      allow read: if isStaffOrAdmin();
+      allow read: if isAdmin() || (isStaff() && tenantAllowed(tenantId));
       allow write: if false;
+
       match /results/{resultId} {
-        allow read: if isStaffOrAdmin();
+        allow read: if isAdmin() || (isStaff() && tenantAllowed(tenantId));
         allow create: if true;
         allow update, delete: if isAdmin() || (isStaff() && tenantAllowed(tenantId));
       }
     }
 
-    // 18. Question Tracker
-    match /questionTracker/{courseId}/{seriesId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
+    // ════════════════════════════════════════════════════════════════════════
+    // 19. Backward Compatibility — Legacy Collection Paths (30-day grace)
+    // ════════════════════════════════════════════════════════════════════════
 
-    // 19. Staff Profiles
-    match /staffProfiles/{userId} {
-      allow read: if isStaffOrAdmin();
-      allow write: if isAdmin();
-    }
-
-    // 20. Legacy Paths (backward compat)
     match /AssessmentResults/{testId}/colleges/{college}/years/{year}/students/{email} {
       allow read, write: if isSignedIn();
     }
+
     match /colleges/{college}/years/{year}/departments/{dept}/students/{email}/{resultType}/{testId} {
       allow read, write: if isSignedIn();
     }
+
     match /LiveUsers/{dateStr}/colleges/{college}/years/{year}/users/{email} {
       allow read, write: if isSignedIn();
     }
+
   }
 }
