@@ -435,7 +435,7 @@ function ReportsPage() {
     if (normalizedResults.length === 0) { toast.error("No results to export"); return; }
     try {
       toast.info("Generating PDF report…");
-      await generateBulkPdf(normalizedResults.slice(0, 100), getExportFilters());
+      await generateBulkPdf(normalizedResults, getExportFilters());
       toast.success("PDF report downloaded!");
     } catch { toast.error("PDF export failed"); }
   }
@@ -474,10 +474,10 @@ function ReportsPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" className="rounded-xl" onClick={exportCsv}>
+          <Button variant="outline" className="rounded-xl" onClick={exportCsv} disabled={normalizedResults.length === 0}>
             <Download className="size-4" /> CSV
           </Button>
-          <Button variant="outline" className="rounded-xl" onClick={exportExcel}>
+          <Button variant="outline" className="rounded-xl" onClick={exportExcel} disabled={normalizedResults.length === 0}>
             <FileSpreadsheet className="size-4" /> Excel
           </Button>
           <Button variant="outline" className="rounded-xl" onClick={exportPdf} disabled={normalizedResults.length === 0}>
