@@ -383,9 +383,15 @@ export async function saveTest(
       resolvedTitle    = norm.assessmentTitle;
       resolvedVersion  = norm.assessmentVersion;
     } catch (e) {
-      // Non-fatal: if assessment fetch fails (network/permission), keep input values.
-      // This allows the test to still be saved — validation will surface the issue.
-      console.warn("[courses] Could not normalize from assessment (using input values):", e);
+      // FAIL CLOSED: when an assessmentId is explicitly linked, normalization failure
+      // must block the save. A test with a stale/manual cdnUrl, type, or marks that
+      // diverges from the selected assessment is worse than no test at all.
+      console.error("[courses] Assessment normalization failed — blocking saveTest:", e);
+      throw new Error(
+        `Unable to validate the selected assessment (${input.assessmentId}). ` +
+        `Please retry or check that the assessment is published. ` +
+        `(${e instanceof Error ? e.message : String(e)})`
+      );
     }
   }
 
