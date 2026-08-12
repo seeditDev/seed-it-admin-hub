@@ -1,4 +1,4 @@
-﻿/**
+/**
  * firestore.rules.test.js
  *
  * Firebase Emulator security-rule tests for SEED-IT Platform.

@@ -4,6 +4,8 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
+  query,
   serverTimestamp,
   setDoc,
 } from "firebase/firestore";
@@ -76,6 +78,13 @@ export interface AssessmentDoc extends Assessment {
   challenges: CodingChallenge[];
   prompts: SeaPrompt[];
   rubric: SeaRubric | null;
+  /**
+   * Assessment schema version. Starts at 1 on first publish (status → active).
+   * Incremented every time a published (active) assessment is saved.
+   * Tests mirror this as `assessmentVersion` so Admin can detect stale links.
+   */
+  version: number;
+
   /**
    * Public CDN URL to the full assessment JSON in seed-contents GitHub repo.
    * Set when the assessment is published; null for draft-only assessments.
@@ -155,6 +164,7 @@ function mapAssessment(id: string, data: Record<string, unknown>): AssessmentDoc
     cdnUrl: data['cdnUrl'] ? String(data['cdnUrl']) : null,
     assessmentCode: data['assessmentCode'] ? String(data['assessmentCode']) : null,
     guestEnabled: Boolean(data['guestEnabled'] ?? false),
+    version: Number(data['version'] ?? 1),
   };
 }
 
@@ -208,6 +218,23 @@ export type AssessmentInput = {
 /** Creates or updates an assessment. Returns the document id. */
 export async function saveAssessment(input: AssessmentInput, createdBy?: string): Promise<string> {
   const id = input.id?.trim() || `${input.type}-${slugify(input.title)}-${Date.now().toString(36)}`;
+
+  // Compute next version:
+  //   - New doc: version = 1
+  //   - Existing active doc: version = currentVersion + 1 (bump on every save)
+  //   - Existing draft doc: version stays at current (or 1 if not set)
+  let nextVersion = 1;
+  if (input.id?.trim()) {
+    const existing = await getDoc(doc(getDb(), ASSESSMENTS, id)).catch(() => null);
+    if (existing?.exists()) {
+      const d = existing.data() as Record<string, unknown>;
+      const currentVersion = Number(d['version'] ?? 1);
+      const currentStatus = String(d['status'] ?? 'draft');
+      // Increment version whenever an active (published) assessment is saved
+      nextVersion = currentStatus === 'active' ? currentVersion + 1 : currentVersion;
+    }
+  }
+
   const payload: Record<string, unknown> = {
     id,
     title: input.title.trim(),
@@ -224,6 +251,7 @@ export async function saveAssessment(input: AssessmentInput, createdBy?: string)
     scheduledStart: input.scheduledStart ?? null,
     scheduledEnd: input.scheduledEnd ?? null,
     proctorConfig: input.proctorConfig ?? DEFAULT_PROCTOR_CONFIG,
+    version: nextVersion,
     updatedAt: serverTimestamp(),
   };
   if (input.questions) payload['questions'] = input.questions;
@@ -245,10 +273,77 @@ export async function saveAssessment(input: AssessmentInput, createdBy?: string)
 }
 
 export async function setAssessmentStatus(id: string, status: AssessmentStatus): Promise<void> {
-  await setDoc(doc(getDb(), ASSESSMENTS, id), { status, updatedAt: serverTimestamp() }, { merge: true });
+  // When transitioning to active (publish), bump the version.
+  const existing = await getDoc(doc(getDb(), ASSESSMENTS, id)).catch(() => null);
+  const currentVersion = Number((existing?.data() as Record<string, unknown> | undefined)?.["version"] ?? 1);
+  const currentStatus = String((existing?.data() as Record<string, unknown> | undefined)?.["status"] ?? "draft");
+  // Bump version on every publish (draft → active, or re-activate)
+  const nextVersion = status === "active" && currentStatus !== "active"
+    ? currentVersion + 1
+    : currentVersion;
+  await setDoc(
+    doc(getDb(), ASSESSMENTS, id),
+    { status, version: nextVersion, updatedAt: serverTimestamp() },
+    { merge: true },
+  );
 }
 
-export async function deleteAssessment(id: string): Promise<void> {
+/**
+ * Soft-archive an assessment — sets status to "archived".
+ * Archived assessments cannot be linked to new Tests but existing Test
+ * references (with their assessmentVersion) remain valid for historical results.
+ */
+export async function archiveAssessment(id: string): Promise<void> {
+  await setDoc(
+    doc(getDb(), ASSESSMENTS, id),
+    { status: "archived", updatedAt: serverTimestamp() },
+    { merge: true },
+  );
+}
+
+/**
+ * Check whether an assessment has existing student result documents.
+ * Use this before deleting to prevent accidental data loss.
+ *
+ * assessmentResults/{assessmentId}/students — if any docs exist, it's unsafe to delete.
+ */
+export async function checkAssessmentDeletable(
+  id: string,
+): Promise<{ safe: boolean; resultCount: number }> {
+  try {
+    const snap = await getDocs(
+      query(collection(getDb(), "assessmentResults", id, "students"), limit(500)),
+    );
+    if (!snap.empty) {
+      return { safe: false, resultCount: snap.size };
+    }
+    return { safe: true, resultCount: 0 };
+  } catch {
+    // If we can't read, conservatively allow (admin may not have results yet)
+    return { safe: true, resultCount: 0 };
+  }
+}
+
+/**
+ * Deletes an assessment. Throws if the assessment has existing result documents
+ * to prevent accidental loss of student data.
+ *
+ * To force-delete an assessment with results (e.g. for test data cleanup),
+ * the caller must pass `{ force: true }`. The Admin UI should never pass force.
+ */
+export async function deleteAssessment(
+  id: string,
+  opts: { force?: boolean } = {},
+): Promise<void> {
+  if (!opts.force) {
+    const { safe, resultCount } = await checkAssessmentDeletable(id);
+    if (!safe) {
+      throw new Error(
+        `Cannot delete assessment "${id}" — it has ${resultCount} student result(s). ` +
+          "Archive the assessment instead to preserve historical data.",
+      );
+    }
+  }
   await deleteDoc(doc(getDb(), ASSESSMENTS, id));
   // Also remove the contentUrls registry entry so the SEB slug dropdown stays clean
   try {

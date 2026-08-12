@@ -154,16 +154,27 @@ function AssignModulesPage() {
       const parsed = parseKey(key);
       if (!parsed) return null;
       const course = (coursesQ.data ?? []).find((c) => c.id === parsed.courseId);
+      // Try to resolve the test name from the loaded seriesTests (if user has browsed that series)
+      const resolvedTest = seriesTests.find((t) => t.id === parsed.testId);
+      const testName = resolvedTest?.name ?? parsed.testId;
+      const testType = resolvedTest?.type ?? "—";
+      const durationMinutes = resolvedTest?.duration_minutes ?? 0;
+      const totalMarks = resolvedTest?.totalMarks ?? 0;
       return {
-        testId: parsed.testId, testName: parsed.testId, testType: "—",
-        durationMinutes: 0, totalMarks: 0,
-        courseId: parsed.courseId, courseTitle: course?.title ?? parsed.courseId,
-        seriesId: parsed.seriesId, seriesTitle: parsed.seriesId,
+        testId: parsed.testId,
+        testName,
+        testType,
+        durationMinutes,
+        totalMarks,
+        courseId: parsed.courseId,
+        courseTitle: course?.title ?? parsed.courseId,
+        seriesId: parsed.seriesId,
+        seriesTitle: parsed.seriesId,
         moduleKey: key,
       } as TestEntry;
     }).filter((e): e is TestEntry => e !== null)
       .filter((e) => !q || e.testName.toLowerCase().includes(q) || e.courseTitle.toLowerCase().includes(q));
-  }, [currentAllowed, coursesQ.data, assignedSearch]);
+  }, [currentAllowed, coursesQ.data, seriesTests, assignedSearch]);
 
   function selectCohort(id: string) {
     setCohortId(id); setAssigned(null);
@@ -179,9 +190,24 @@ function AssignModulesPage() {
   }
 
   const syncMutation = useMutation({
-    mutationFn: () => setAllowedModules(effectiveTenantId, cohortId, currentAllowed),
-    onSuccess: () => { toast.success("Module assignment synced"); setAssigned(null); void qc.invalidateQueries({ queryKey: ["cohorts", effectiveTenantId] }); },
-    onError: () => toast.error("Could not sync assignment"),
+    mutationFn: () => setAllowedModules(
+      effectiveTenantId,
+      cohortId,
+      currentAllowed,
+      {
+        previousModules: activeCohort?.allowedModules ?? [],
+        validateNewKeys: true,
+      },
+    ),
+    onSuccess: () => {
+      toast.success("Module assignment synced");
+      setAssigned(null);
+      void qc.invalidateQueries({ queryKey: ["cohorts", effectiveTenantId] });
+    },
+    onError: (e) => toast.error(
+      e instanceof Error ? e.message : "Could not sync assignment",
+      { duration: 8000 },
+    ),
   });
 
   const matrixCounts = useMemo(() =>

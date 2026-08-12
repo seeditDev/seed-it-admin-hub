@@ -106,6 +106,13 @@ export interface TestDoc {
   cdnUrl: string;
   /** Legacy field kept for backward compat — prefer cdnUrl */
   assessmentId: string;
+  /** Human-readable title of the linked assessment (denormalized for display). */
+  assessmentTitle: string;
+  /**
+   * Version of the linked assessment at the time this Test was last saved.
+   * If assessment.version > test.assessmentVersion, the test is stale.
+   */
+  assessmentVersion: number;
   /** For MSA: list of sections, each referencing a cdnUrl */
   sections: MSASection[];
   duration_minutes: number;
@@ -218,6 +225,8 @@ function mapTest(id: string, d: Record<string, unknown>): TestDoc {
     type: (d["type"] as TestType) ?? "mcq",
     cdnUrl: String(d["cdnUrl"] ?? ""),
     assessmentId: String(d["assessmentId"] ?? ""),
+    assessmentTitle: String(d["assessmentTitle"] ?? ""),
+    assessmentVersion: Number(d["assessmentVersion"] ?? 1),
     sections,
     duration_minutes: Number(d["duration_minutes"] ?? 60),
     totalMarks: Number(d["totalMarks"] ?? 100),
@@ -352,23 +361,53 @@ export async function saveTest(
   const id = input.id.trim() || `${seriesId}_T${String(count + 1).padStart(3, "0")}`;
   void seriesPrefix; // used indirectly via seriesId
 
+  // ── Assessment-as-source-of-truth merge ──────────────────────────────────
+  // When an assessmentId is linked, fetch assessment metadata and use it as
+  // the canonical source for: type, duration_minutes, totalMarks, cdnUrl.
+  // This prevents the test from diverging from the source assessment.
+  let resolvedType     = input.type;
+  let resolvedDuration = input.duration_minutes;
+  let resolvedMarks    = input.totalMarks;
+  let resolvedCdnUrl   = input.type !== "msa" ? (input.cdnUrl ?? "") : "";
+  let resolvedTitle    = input.assessmentTitle ?? "";
+  let resolvedVersion  = input.assessmentVersion ?? 1;
+
+  if (input.assessmentId && input.type !== "msa") {
+    try {
+      const { normalizeTestFromAssessment } = await import("@/lib/firestore/delivery");
+      const norm = await normalizeTestFromAssessment(input.assessmentId);
+      resolvedType     = norm.type as TestType;
+      resolvedDuration = norm.duration_minutes;
+      resolvedMarks    = norm.totalMarks;
+      resolvedCdnUrl   = norm.cdnUrl;
+      resolvedTitle    = norm.assessmentTitle;
+      resolvedVersion  = norm.assessmentVersion;
+    } catch (e) {
+      // Non-fatal: if assessment fetch fails (network/permission), keep input values.
+      // This allows the test to still be saved — validation will surface the issue.
+      console.warn("[courses] Could not normalize from assessment (using input values):", e);
+    }
+  }
+
   // For MSA, compute total duration from sections
   const duration =
-    input.type === "msa" && input.sections.length > 0
+    resolvedType === "msa" && input.sections.length > 0
       ? input.sections.reduce((sum, s) => sum + (Number(s.duration_minutes) || 0), 0)
-      : input.duration_minutes;
+      : resolvedDuration;
 
   const ref = doc(getDb(), COURSES, courseId, "series", seriesId, "tests", id);
   const payload: Record<string, unknown> = {
     id,
     name: input.name.trim(),
     description: input.description,
-    type: input.type,
-    cdnUrl: input.type !== "msa" ? (input.cdnUrl ?? "") : "",
+    type: resolvedType,
+    cdnUrl: resolvedType !== "msa" ? resolvedCdnUrl : "",
     assessmentId: input.assessmentId ?? "",
-    sections: input.type === "msa" ? input.sections : [],
+    assessmentTitle: resolvedTitle,
+    assessmentVersion: resolvedVersion,
+    sections: resolvedType === "msa" ? input.sections : [],
     duration_minutes: duration,
-    totalMarks: input.totalMarks,
+    totalMarks: resolvedMarks,
     difficulty: input.difficulty,
     proctored: input.proctored,
     audioProctored: input.audioProctored,
@@ -398,11 +437,11 @@ export async function saveTest(
       courseId,
       seriesId,
       name: input.name.trim(),
-      type: input.type,
-      cdnUrl: input.type !== "msa" ? (input.cdnUrl ?? "") : "",
-      sections: input.type === "msa" ? input.sections : [],
+      type: resolvedType,
+      cdnUrl: resolvedType !== "msa" ? resolvedCdnUrl : "",
+      sections: resolvedType === "msa" ? input.sections : [],
       duration: duration,
-      totalMarks: input.totalMarks,
+      totalMarks: resolvedMarks,
       passkey: input.passkey,
       proctored: input.proctored,
       audioProctored: input.audioProctored,

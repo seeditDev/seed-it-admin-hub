@@ -156,10 +156,81 @@ export async function deleteCohort(tenantId: string, cohortId: string): Promise<
   await deleteDoc(doc(getDb(), TENANTS, tenantId, "cohorts", cohortId));
 }
 
+/**
+ * Persist the full allowedModules list for a cohort.
+ *
+ * Behaviour:
+ *  - Deduplicates the list before writing (prevents double-entries)
+ *  - When `validateNewKeys` is provided, runs validateCohortAssignment() for
+ *    each key in the set that was not in `previousModules` and accumulates
+ *    any errors. If hard errors exist, the write is blocked and an Error thrown.
+ *
+ * The moduleKey format used by SEB: courseId::seriesId::testId
+ */
 export async function setAllowedModules(
   tenantId: string,
   cohortId: string,
   allowedModules: string[],
+  opts?: {
+    /** Keys that were already assigned before this save (used to detect new additions) */
+    previousModules?: string[];
+    /** Run delivery validation on newly added keys */
+    validateNewKeys?: boolean;
+  },
 ): Promise<void> {
-  await updateDoc(doc(getDb(), TENANTS, tenantId, "cohorts", cohortId), { allowedModules });
+  // 1. Deduplicate — preserve order, remove exact duplicates
+  const seen = new Set<string>();
+  const deduped = allowedModules.filter((k) => {
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+
+  // 2. Optional pre-save validation of newly added keys
+  if (opts?.validateNewKeys) {
+    const prev = new Set(opts.previousModules ?? []);
+    const newKeys = deduped.filter((k) => !prev.has(k));
+
+    if (newKeys.length > 0) {
+      const { validateCohortAssignment } = await import("@/lib/firestore/delivery");
+      const allErrors: string[] = [];
+      const allWarnings: string[] = [];
+
+      await Promise.all(
+        newKeys.map(async (key) => {
+          const parts = key.split("::");
+          if (parts.length !== 3) {
+            allErrors.push(`"${key}" is not a valid module key (expected courseId::seriesId::testId).`);
+            return;
+          }
+          const [courseId, seriesId, testId] = parts as [string, string, string];
+          const result = await validateCohortAssignment(
+            courseId,
+            seriesId,
+            testId,
+            tenantId,
+            cohortId,
+            opts.previousModules ?? [],
+          );
+          allErrors.push(...result.errors.map((e) => `[${key}] ${e}`));
+          allWarnings.push(...result.warnings.map((w) => `[${key}] ${w}`));
+        }),
+      );
+
+      if (allWarnings.length > 0) {
+        console.warn("[setAllowedModules] Validation warnings:", allWarnings.join(" | "));
+      }
+      if (allErrors.length > 0) {
+        throw new Error(
+          `Assignment blocked — ${allErrors.length} validation error(s):\n` +
+            allErrors.join("\n"),
+        );
+      }
+    }
+  }
+
+  // 3. Write the deduplicated list
+  await updateDoc(doc(getDb(), TENANTS, tenantId, "cohorts", cohortId), {
+    allowedModules: deduped,
+  });
 }

@@ -79,7 +79,7 @@ import {
   removeTestFromTracker,
   type QuestionTracker,
 } from "@/lib/firestore/questionTracker";
-import { generateAssessmentCode } from "@/lib/firestore/assessments";
+import { generateAssessmentCode, checkAssessmentDeletable } from "@/lib/firestore/assessments";
 // tenantCourses sync is now handled inside courses.ts updateTestTargeting / saveTest
 
 
@@ -281,6 +281,8 @@ function blankTest(seriesId: string, order: number): TestDoc {
     type: "mcq",
     cdnUrl: "",
     assessmentId: "",
+    assessmentTitle: "",
+    assessmentVersion: 1,
     sections: [],
     duration_minutes: 60,
     totalMarks: 100,
@@ -466,7 +468,25 @@ function CoursesPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Save failed"),
   });
   const deleteTestMut = useMutation({
-    mutationFn: ({ sId, tId }: { sId: string; tId: string }) => deleteTest(selectedCourseId!, sId, tId),
+    mutationFn: async ({ sId, tId }: { sId: string; tId: string }) => {
+      // Safety check: block deletion if assessment has result documents
+      // We use the test's assessmentId to check results
+      const allTests = testsBySeriesId[sId] ?? [];
+      const test = allTests.find((t) => t.id === tId);
+      if (test?.assessmentId) {
+        const { safe, resultCount } = await checkAssessmentDeletable(test.assessmentId);
+        if (!safe) {
+          const confirmed = confirm(
+            `⚠ Warning: Assessment "${test.assessmentTitle || test.assessmentId}" has ${resultCount} student result(s).\n\n` +
+            `Deleting this test will not remove the results, but may make them harder to trace.\n\n` +
+            `To preserve full data integrity, consider archiving instead.\n\n` +
+            `Proceed with delete anyway?`
+          );
+          if (!confirmed) throw new Error("Deletion cancelled by admin.");
+        }
+      }
+      return deleteTest(selectedCourseId!, sId, tId);
+    },
     onSuccess: async (_, { sId, tId }) => {
       toast.success("Test deleted");
       const tests = await listTests(selectedCourseId!, sId);
@@ -480,7 +500,7 @@ function CoursesPage() {
       } catch { /* silent */ }
       // tenantCourses cleanup handled inside deleteTest() in courses.ts
     },
-    onError: () => toast.error("Delete failed"),
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Delete failed"),
   });
 
   /* ─── targeting mutation ─── */
@@ -941,20 +961,49 @@ function CoursesPage() {
               {/* ── Non-MSA: CDN URL picker (dropdown from registry + manual paste) ── */}
               {testForm.type !== "msa" && (() => {
                 const options: ContentUrlDoc[] = contentByType[testForm.type as "mcq" | "coding" | "sea"] ?? [];
+                // Find if the currently selected cdnUrl matches a registry entry
+                const selectedEntry = options.find((o) => o.id === testForm.assessmentId || o.cdnUrl === testForm.cdnUrl);
+                const isDraftLinked = testForm.assessmentId && !testForm.cdnUrl;
+
                 return (
                   <div className="space-y-3">
+                    {/* Assessment link status */}
+                    {testForm.assessmentId && selectedEntry && (
+                      <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-400">
+                        <span className="font-medium">✓ Linked:</span> {selectedEntry.title}
+                        <span className="text-emerald-600/60">· {selectedEntry.totalMarks} marks · {selectedEntry.durationMinutes} min · v{testForm.assessmentVersion ?? 1}</span>
+                      </div>
+                    )}
+                    {testForm.assessmentId && !selectedEntry && (
+                      <div className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-400">
+                        <AlertTriangle className="size-3 shrink-0" />
+                        Linked assessment <code className="font-mono">{testForm.assessmentId}</code> is not in the published registry. It may be a draft or deleted.
+                      </div>
+                    )}
+                    {void isDraftLinked}
                     <div className="space-y-1.5">
                       <Label htmlFor="test-cdn-select">
                         {TYPE_LABEL[testForm.type]} Assessment
                         <span className="ml-2 text-xs text-muted-foreground font-normal">
-                          — select a saved test slug or paste its JSON URL below
+                          — select from published assessments
                         </span>
                       </Label>
                       <Select
-                        value={options.find((o) => o.cdnUrl === testForm.cdnUrl)?.id ?? ""}
+                        value={selectedEntry?.id ?? ""}
                         onValueChange={(v) => {
                           const found = options.find((o) => o.id === v);
-                          if (found) setTestForm((p) => ({ ...p, cdnUrl: found.cdnUrl }));
+                          if (found) {
+                            // Auto-populate from assessment — assessment is source of truth
+                            setTestForm((p) => ({
+                              ...p,
+                              cdnUrl: found.cdnUrl,
+                              assessmentId: found.id,
+                              assessmentTitle: found.title,
+                              duration_minutes: found.durationMinutes,
+                              totalMarks: found.totalMarks,
+                              type: found.type as TestType,
+                            }));
+                          }
                         }}
                       >
                         <SelectTrigger id="test-cdn-select" className="rounded-xl">
@@ -963,7 +1012,7 @@ function CoursesPage() {
                               ? "Loading saved assessments…"
                               : options.length === 0
                                 ? "No saved assessments yet — create one in MCQ/Coding/SEA Creator"
-                                : "Select a saved assessment…"
+                                : "Select a published assessment…"
                           } />
                         </SelectTrigger>
                         <SelectContent>
@@ -980,7 +1029,7 @@ function CoursesPage() {
                     </div>
                     <div className="space-y-1.5">
                       <Label htmlFor="test-cdn-url" className="text-xs text-muted-foreground">
-                        Or paste the test JSON URL (from GitHub / seed-contents) manually
+                        Or paste the test JSON URL manually (overrides selection above)
                       </Label>
                       <Input
                         id="test-cdn-url"

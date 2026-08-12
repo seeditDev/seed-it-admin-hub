@@ -27,6 +27,7 @@ import {
 import type { AssessmentDoc } from "@/lib/firestore/assessments";
 import { Archive, Copy, ExternalLink, Loader2, Pencil, PlayCircle, PauseCircle, Search, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { AssessmentDeliveryPanel } from "@/components/AssessmentDeliveryPanel";
 
 /* -------------------------------- Targeting -------------------------------- */
 
@@ -412,6 +413,10 @@ export function AssessmentListCard({
                       </button>
                     </div>
                   )}
+                  {/* Delivery status strip — shows tests/cohort/student counts */}
+                  <div className="mt-1.5">
+                    <AssessmentDeliveryPanel assessmentId={a.id} compact />
+                  </div>
                 </div>
                 <Badge variant={STATUS_VARIANT[a.status]} className="shrink-0 rounded-full text-[10px] capitalize">
                   {a.status}
