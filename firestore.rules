@@ -204,11 +204,25 @@ service cloud.firestore {
       }
     }
 
-    // CollectionGroup: tests — signed-in or guestEnabled
+    // CollectionGroup: tests
+    //
+    // P0 FIX: The previous wildcard `/{path=**}/tests/{testId}` with
+    // `allow read: if isSignedIn()` made EVERY test document (including
+    // unassigned/draft tests under any parent) readable by any authenticated
+    // user. This overrode the more specific courses/{c}/series/{s}/tests/{t}
+    // rule that should gate access.
+    //
+    // Correct model:
+    //   - Signed-in users may read tests ONLY via the scoped path:
+    //       courses/{c}/series/{s}/tests/{t}   (line 195-198 above)
+    //   - Guest users may read tenantCourses/{tenantId}/tests/{t} where
+    //       guestEnabled == true                (line 228-236 above)
+    //   - Portal (admin/staff) may read all tests for the authoring UI
+    //
+    // This collectionGroup rule is kept ONLY for portal-level queries
+    // (e.g., "find all tests using assessment X").
     match /{path=**}/tests/{testId} {
-      allow read: if isPortal()
-        || isSignedIn()
-        || resource.data.guestEnabled == true;
+      allow read: if isPortal();
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -243,12 +257,21 @@ service cloud.firestore {
     // ══════════════════════════════════════════════════════════════════════
 
     match /assessments/{assessmentId} {
-      allow get:    if isPortal() || isSignedIn();
-      allow list:   if isPortal();
+      // Portal: full read access for authoring UI
+      allow list: if isPortal();
       allow create, update, delete: if isPortal();
 
+      // get() — scoped by role:
+      //   Admin/Staff: all assessments including drafts
+      //   Student/SEB: only published (active) assessments
+      //     SEB resolves tests from courses/{c}/series/{s}/tests/{t} which
+      //     stores cdnUrl; it should not need to read the raw assessment doc.
+      //     However if SEB does get() for validation, it must only see active.
+      allow get: if isPortal()
+        || (isSignedIn() && resource.data.get('status', 'draft') == 'active');
+
       match /{document=**} {
-        allow read:  if isPortal() || isSignedIn();
+        allow read:  if isPortal();
         allow write: if isPortal();
       }
     }
@@ -282,13 +305,28 @@ service cloud.firestore {
       }
     }
 
-    // CollectionGroup: students (Reports tab admin query)
+    // CollectionGroup: students (Admin Reports tab — collectionGroup query)
+    //
+    // IMPORTANT: This wildcard matches ANY subcollection named "students".
+    // We scope writes to authenticated users writing only their own result doc
+    // under assessmentResults/{assessmentId}/students/{uid}.
+    // The specific assessmentResults/{assessmentId}/students/{uid} rule above
+    // (line 268-276) governs per-doc access and takes precedence for single-doc ops.
+    // This collectionGroup rule enables the Admin's cross-assessment query.
     match /{path=**}/students/{userId} {
       allow read: if isAdmin()
         || (isStaff() && resource.data.get('tenantId', '') == myTenant())
         || (isSignedIn() && request.auth.uid == userId);
-      allow create, update: if isPortal()
-        || (isSignedIn() && request.auth.uid == userId);
+      // Writes: only via the specific assessmentResults/{id}/students/{uid} path above.
+      // We do NOT grant create/update here to prevent writing to arbitrary /students/ paths.
+      allow create: if isSignedIn()
+        && request.auth.uid == userId
+        && path[0] == 'assessmentResults';   // only under assessmentResults/*
+      allow update: if isPortal()
+        || (isSignedIn()
+            && request.auth.uid == userId
+            && path[0] == 'assessmentResults'
+            && resource.data.get('status', '') != 'submitted');
       allow delete: if isAdmin();
     }
 
@@ -365,10 +403,15 @@ service cloud.firestore {
 
     // ══════════════════════════════════════════════════════════════════════
     // 12. Module Assignments
+    //   moduleAssignments/{assignmentId}
+    //
+    // Written by Admin Hub. Read by portal for reporting.
+    // Students do NOT need to read this collection directly —
+    // they resolve their tests from tenants/{t}/cohorts/{c}.allowedModules.
     // ══════════════════════════════════════════════════════════════════════
 
     match /moduleAssignments/{assignmentId} {
-      allow read:  if isSignedIn();
+      allow read:  if isPortal();
       allow write: if isPortal();
     }
 

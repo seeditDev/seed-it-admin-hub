@@ -1,4 +1,4 @@
-﻿/**
+/**
  * delivery.ts
  * ──────────────────────────────────────────────────────────────────────────
  * Validation helpers for the SEED-IT delivery chain:
@@ -13,7 +13,16 @@
  * same paths it always has. This module only validates Admin Hub writes.
  */
 
-import { collection, doc, getDoc, getDocs, limit, query } from "firebase/firestore";
+import {
+  collection,
+  collectionGroup,
+  doc,
+  getDoc,
+  getDocs,
+  limit,
+  query,
+  where,
+} from "firebase/firestore";
 import { getDb } from "@/lib/firebase";
 import type { AssessmentStatus } from "@/types/seedit";
 
@@ -72,12 +81,76 @@ async function fetchAssessment(assessmentId: string): Promise<{
   };
 }
 
-async function cdnUrlReachable(cdnUrl: string): Promise<boolean> {
+/** CDN payload validation result */
+interface CdnValidation {
+  reachable: boolean;
+  /** true if the fetched content parses as valid JSON */
+  validJson: boolean;
+  /**
+   * Detected assessmentId inside the JSON payload.
+   * Conventions used by seed-contents:
+   *   MCQ:    { id, assessmentId, questions }
+   *   Coding: { id, assessmentId, problems / challenges }
+   *   SEA:    { id, assessmentId, prompts }
+   */
+  payloadAssessmentId: string | null;
+  /** Detected type inside the JSON payload */
+  payloadType: string | null;
+  /** Number of questions/problems detected (0 if unknown) */
+  questionCount: number;
+  error: string | null;
+}
+
+/**
+ * Fetch and validate a CDN assessment payload.
+ * Performs a real GET (not HEAD) so we can inspect the JSON body.
+ * Times out after 6 seconds — used as a soft warning, not a hard block.
+ */
+async function validateCdnPayload(cdnUrl: string): Promise<CdnValidation> {
   try {
-    const res = await fetch(cdnUrl, { method: "HEAD", signal: AbortSignal.timeout(4000) });
-    return res.ok;
-  } catch {
-    return false;
+    const res = await fetch(cdnUrl, {
+      method: "GET",
+      signal: AbortSignal.timeout(6000),
+      headers: { Accept: "application/json" },
+    });
+    if (!res.ok) {
+      return {
+        reachable: false, validJson: false,
+        payloadAssessmentId: null, payloadType: null, questionCount: 0,
+        error: `HTTP ${res.status} ${res.statusText}`,
+      };
+    }
+    const text = await res.text();
+    let json: Record<string, unknown>;
+    try {
+      json = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      return {
+        reachable: true, validJson: false,
+        payloadAssessmentId: null, payloadType: null, questionCount: 0,
+        error: "Response is not valid JSON",
+      };
+    }
+    // Detect assessmentId — payload may use `id`, `assessmentId`, or `testId`
+    const payloadAssessmentId = String(
+      json["assessmentId"] ?? json["id"] ?? json["testId"] ?? ""
+    ) || null;
+    // Detect type from payload
+    const payloadType = json["type"] ? String(json["type"]) : null;
+    // Count questions/problems
+    const questionCount =
+      (Array.isArray(json["questions"]) ? json["questions"].length : 0) +
+      (Array.isArray(json["problems"]) ? json["problems"].length : 0) +
+      (Array.isArray(json["challenges"]) ? json["challenges"].length : 0) +
+      (Array.isArray(json["prompts"]) ? json["prompts"].length : 0);
+
+    return { reachable: true, validJson: true, payloadAssessmentId, payloadType, questionCount, error: null };
+  } catch (e) {
+    return {
+      reachable: false, validJson: false,
+      payloadAssessmentId: null, payloadType: null, questionCount: 0,
+      error: e instanceof Error ? e.message : "Network error",
+    };
   }
 }
 
@@ -249,14 +322,53 @@ export async function validateTestDelivery(
     errors.push("Total marks must be greater than 0.");
   }
 
-  // 8. CDN reachability (soft warning — non-blocking)
+  // 8. CDN payload validation (soft warning for reachability, error for payload mismatch)
   if (cdnUrl && testType !== "msa") {
-    const reachable = await cdnUrlReachable(cdnUrl);
-    if (!reachable) {
+    const cdnResult = await validateCdnPayload(cdnUrl);
+
+    if (!cdnResult.reachable) {
       warnings.push(
-        `CDN URL may not be reachable: ${cdnUrl}. ` +
-          "Verify that the file has been committed and pushed to seed-contents.",
+        `CDN URL is not reachable: ${cdnUrl}. ` +
+          `Error: ${cdnResult.error ?? "Network error"}. ` +
+          "Verify that the file has been committed and pushed to seed-contents before assigning to students.",
       );
+    } else if (!cdnResult.validJson) {
+      errors.push(
+        `CDN URL returned non-JSON content: ${cdnUrl}. ` +
+          `Error: ${cdnResult.error ?? "Parse error"}. ` +
+          "The assessment payload must be a valid JSON file.",
+      );
+    } else {
+      // Payload is readable JSON — now check content integrity
+
+      // 8a. AssessmentId cross-check: payload must identify the same assessment
+      if (
+        cdnResult.payloadAssessmentId &&
+        assessmentId &&
+        cdnResult.payloadAssessmentId !== assessmentId
+      ) {
+        errors.push(
+          `CDN payload mismatch: the test links to assessment "${assessmentId}" ` +
+            `but the CDN JSON identifies itself as "${cdnResult.payloadAssessmentId}". ` +
+            "Select the correct CDN URL for this assessment, or re-publish the assessment to seed-contents.",
+        );
+      }
+
+      // 8b. Type cross-check
+      if (cdnResult.payloadType && testType && cdnResult.payloadType !== testType) {
+        warnings.push(
+          `CDN payload type "${cdnResult.payloadType}" does not match test type "${testType}". ` +
+            "Verify that the correct assessment payload is linked.",
+        );
+      }
+
+      // 8c. Empty payload check
+      if (cdnResult.questionCount === 0) {
+        warnings.push(
+          `CDN payload at ${cdnUrl} contains 0 questions/problems/prompts. ` +
+            "Verify the assessment content has been published correctly.",
+        );
+      }
     }
   }
 
@@ -356,4 +468,180 @@ export async function assessmentHasResults(
     // If we can't read, assume there might be results (safe default)
     return { hasResults: false, count: 0 };
   }
+}
+
+// ─── Delivery Status (admin dashboard) ──────────────────────────────────────
+
+export interface TestRef {
+  courseId: string;
+  courseTitle: string;
+  seriesId: string;
+  seriesTitle: string;
+  testId: string;
+  testName: string;
+  testStatus: string;
+  assessmentVersion: number;
+}
+
+export interface CohortRef {
+  tenantId: string;
+  tenantName: string;
+  cohortId: string;
+  cohortLabel: string;
+  cohortYear: string;
+  /** Approximate student count (from cohort doc if stored, else 0) */
+  studentCount: number;
+}
+
+export interface AssessmentDeliveryStatus {
+  assessmentId: string;
+  assessmentTitle: string;
+  assessmentStatus: AssessmentStatus | string;
+  assessmentVersion: number;
+  /** All course/series/tests that link to this assessment */
+  tests: TestRef[];
+  /** All cohorts that have at least one of those tests assigned */
+  cohorts: CohortRef[];
+  /** Aggregate student count across all assigned cohorts */
+  totalStudents: number;
+}
+
+/**
+ * Finds all `courses/{c}/series/{s}/tests/{t}` documents whose
+ * `assessmentId` field matches the given assessment.
+ *
+ * Used by the admin Assessment detail panel to answer:
+ *   "Which Course/Series/Tests use this assessment?"
+ */
+export async function listTestsForAssessment(assessmentId: string): Promise<TestRef[]> {
+  if (!assessmentId) return [];
+  try {
+    const snap = await getDocs(
+      query(collectionGroup(getDb(), "tests"), where("assessmentId", "==", assessmentId), limit(50)),
+    );
+    return snap.docs.map((d) => {
+      const data = d.data() as Record<string, unknown>;
+      // Path: courses/{courseId}/series/{seriesId}/tests/{testId}
+      const parts = d.ref.path.split("/");
+      return {
+        courseId: parts[1] ?? "",
+        courseTitle: String(data["courseTitle"] ?? parts[1] ?? ""),
+        seriesId: parts[3] ?? "",
+        seriesTitle: String(data["seriesTitle"] ?? parts[3] ?? ""),
+        testId: d.id,
+        testName: String(data["name"] ?? d.id),
+        testStatus: String(data["status"] ?? "published"),
+        assessmentVersion: Number(data["assessmentVersion"] ?? 1),
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Finds all cohorts that have `moduleKey` (`courseId::seriesId::testId`)
+ * in their `allowedModules` array.
+ *
+ * Requires a composite Firestore index on:
+ *   tenants/{tenantId}/cohorts — array-contains on allowedModules
+ *
+ * Returns an empty array (silently) if the query is not indexed yet.
+ */
+export async function listCohortsForTest(
+  courseId: string,
+  seriesId: string,
+  testId: string,
+): Promise<CohortRef[]> {
+  const moduleKey = `${courseId}::${seriesId}::${testId}`;
+  if (!moduleKey.includes("::")) return [];
+  try {
+    const snap = await getDocs(
+      query(
+        collectionGroup(getDb(), "cohorts"),
+        where("allowedModules", "array-contains", moduleKey),
+        limit(100),
+      ),
+    );
+    return snap.docs.map((d) => {
+      const data = d.data() as Record<string, unknown>;
+      const parts = d.ref.path.split("/");
+      return {
+        tenantId: parts[1] ?? "",
+        tenantName: String(data["tenantName"] ?? parts[1] ?? ""),
+        cohortId: d.id,
+        cohortLabel: String(data["label"] ?? d.id),
+        cohortYear: String(data["year"] ?? ""),
+        studentCount: Number(data["studentCount"] ?? 0),
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Returns the full delivery chain status for a given assessment:
+ *
+ *   Assessment → Tests → Cohorts → Total student count
+ *
+ * Used to drive the "Delivery Status" panel in the Admin Hub:
+ *   - Is it published?
+ *   - Is it attached to a Test?
+ *   - Which Course / Series?
+ *   - Which Cohorts?
+ *   - How many students have access?
+ */
+export async function getAssessmentDeliveryStatus(
+  assessmentId: string,
+): Promise<AssessmentDeliveryStatus> {
+  const empty: AssessmentDeliveryStatus = {
+    assessmentId,
+    assessmentTitle: "",
+    assessmentStatus: "draft",
+    assessmentVersion: 1,
+    tests: [],
+    cohorts: [],
+    totalStudents: 0,
+  };
+  if (!assessmentId) return empty;
+
+  // Fetch assessment meta
+  let aTitle = "";
+  let aStatus: string = "draft";
+  let aVersion = 1;
+  try {
+    const aSnap = await getDoc(doc(getDb(), "assessments", assessmentId));
+    if (aSnap.exists()) {
+      const d = aSnap.data() as Record<string, unknown>;
+      aTitle = String(d["title"] ?? d["assessmentTitle"] ?? assessmentId);
+      aStatus = String(d["status"] ?? "draft");
+      aVersion = Number(d["version"] ?? 1);
+    }
+  } catch { /* ignore */ }
+
+  // Find linked tests
+  const tests = await listTestsForAssessment(assessmentId);
+
+  // Find cohorts for each test (deduplicated by cohortId)
+  const cohortMap = new Map<string, CohortRef>();
+  for (const t of tests) {
+    const cohorts = await listCohortsForTest(t.courseId, t.seriesId, t.testId);
+    for (const c of cohorts) {
+      if (!cohortMap.has(c.cohortId)) cohortMap.set(c.cohortId, c);
+    }
+  }
+
+  const cohorts = Array.from(cohortMap.values());
+  const totalStudents = cohorts.reduce((sum, c) => sum + c.studentCount, 0);
+
+  return {
+    assessmentId,
+    assessmentTitle: aTitle,
+    assessmentStatus: aStatus as AssessmentStatus,
+    assessmentVersion: aVersion,
+    tests,
+    cohorts,
+    totalStudents,
+  };
 }
