@@ -32,34 +32,6 @@
         { "fieldPath": "cohortId", "order": "ASCENDING" },
         { "fieldPath": "submittedAt", "order": "DESCENDING" }
       ]
-    },
-    {
-      "collectionGroup": "contestAttempts",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        { "fieldPath": "completed", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "multiSectionAttempts",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        { "fieldPath": "completed", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "tests",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        { "fieldPath": "assessmentId", "order": "ASCENDING" }
-      ]
-    },
-    {
-      "collectionGroup": "cohorts",
-      "queryScope": "COLLECTION_GROUP",
-      "fields": [
-        { "fieldPath": "allowedModules", "arrayConfig": "CONTAINS" }
-      ]
     }
   ],
   "fieldOverrides": [
@@ -77,6 +49,22 @@
       "indexes": [
         { "queryScope": "COLLECTION", "arrayConfig": "CONTAINS" },
         { "queryScope": "COLLECTION_GROUP", "arrayConfig": "CONTAINS" }
+      ]
+    },
+    {
+      "collectionGroup": "contestAttempts",
+      "fieldPath": "completed",
+      "indexes": [
+        { "queryScope": "COLLECTION", "order": "ASCENDING" },
+        { "queryScope": "COLLECTION_GROUP", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "multiSectionAttempts",
+      "fieldPath": "completed",
+      "indexes": [
+        { "queryScope": "COLLECTION", "order": "ASCENDING" },
+        { "queryScope": "COLLECTION_GROUP", "order": "ASCENDING" }
       ]
     }
   ]
