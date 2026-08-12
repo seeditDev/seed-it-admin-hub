@@ -580,6 +580,7 @@ function CoursesPage() {
   }
 
   const msaDuration = testForm.sections.reduce((s, sec) => s + (Number(sec.duration_minutes) || 0), 0);
+  const msaMarks = testForm.sections.reduce((s, sec) => s + (Number(sec.totalMarks) || 0), 0);
 
   /* ─── toggle series expand ─── */
   function toggleSeries(sId: string) {
@@ -1119,7 +1120,13 @@ function CoursesPage() {
                                 value={opts.find((o) => o.cdnUrl === sec.cdnUrl)?.id ?? ""}
                                 onValueChange={(v) => {
                                   const found = opts.find((o) => o.id === v);
-                                  if (found) updateSection(idx, { cdnUrl: found.cdnUrl, assessmentId: found.id });
+                                  if (found) updateSection(idx, {
+                                    cdnUrl: found.cdnUrl,
+                                    assessmentId: found.id,
+                                    // Auto-capture marks and duration from the linked assessment
+                                    totalMarks: found.totalMarks ?? 0,
+                                    duration_minutes: found.durationMinutes ?? sec.duration_minutes,
+                                  });
                                 }}
                               >
                                 <SelectTrigger id={`sec-cdn-${idx}`} className="rounded-xl h-8 text-sm">
@@ -1218,8 +1225,10 @@ function CoursesPage() {
                 <div className="space-y-2">
                   <Label htmlFor="test-marks">Total Marks</Label>
                   <Input id="test-marks" type="number" min={0} className="rounded-xl"
-                    value={testForm.totalMarks}
+                    value={testForm.type === "msa" ? msaMarks : testForm.totalMarks}
+                    disabled={testForm.type === "msa"}
                     onChange={(e) => setTestForm((p) => ({ ...p, totalMarks: Number(e.target.value) || 100 }))} />
+                  {testForm.type === "msa" && <p className="text-xs text-muted-foreground">Auto-computed from sections.</p>}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="test-difficulty">Difficulty</Label>

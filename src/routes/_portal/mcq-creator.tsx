@@ -753,8 +753,8 @@ function McqCreatorPage() {
                   <div className="space-y-2">
                     <Label htmlFor="mcq-duration">Duration (min)</Label>
                     <Input id="mcq-duration" type="number" min={1} className="rounded-xl"
-                      value={draft.durationMinutes}
-                      onChange={(e) => setDraft((prev) => prev ? { ...prev, durationMinutes: Number(e.target.value) || 0 } : prev)} />
+                      value={draft.durationMinutes || ""}
+                      onChange={(e) => setDraft((prev) => prev ? { ...prev, durationMinutes: e.target.value === "" ? 0 : Number(e.target.value) } : prev)} />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="mcq-pass">Pass %</Label>
@@ -769,11 +769,28 @@ function McqCreatorPage() {
                       onChange={(e) => setDraft((prev) => prev ? { ...prev, negativeMarking: Number(e.target.value) || 0 } : prev)} />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="mcq-total">Total marks</Label>
+                    <Label htmlFor="mcq-total">
+                      Total marks
+                      {draft.totalMarksOverride !== null && (
+                        <button
+                          type="button"
+                          className="ml-2 text-[10px] text-muted-foreground underline hover:text-foreground"
+                          onClick={() => setDraft((prev) => prev ? { ...prev, totalMarksOverride: null } : prev)}
+                        >
+                          reset to auto ({computedMarks})
+                        </button>
+                      )}
+                    </Label>
                     <Input id="mcq-total" type="number" min={0} className="rounded-xl"
-                      placeholder={String(computedMarks)}
-                      value={draft.totalMarksOverride ?? computedMarks}
-                      onChange={(e) => setDraft((prev) => prev ? { ...prev, totalMarksOverride: Number(e.target.value) || 0 } : prev)} />
+                      placeholder={`Auto: ${computedMarks}`}
+                      value={draft.totalMarksOverride ?? ""}
+                      onChange={(e) => setDraft((prev) => prev ? {
+                        ...prev,
+                        totalMarksOverride: e.target.value === "" ? null : Number(e.target.value),
+                      } : prev)} />
+                    <p className="text-xs text-muted-foreground">
+                      Leave blank to use auto-computed sum ({computedMarks} pts from questions). Type to override.
+                    </p>
                   </div>
                 </div>
 

@@ -421,6 +421,22 @@ function CodingCreatorPage() {
     setDraft(draftFromDoc(full ?? a));
   }
 
+  /**
+   * Toggle draft→active: must run the FULL save mutation so the CDN upload
+   * and contentUrls registration happen. Flipping status only (statusMutation)
+   * would leave cdnUrl empty and break SEB loading.
+   * active→draft: simple status-only flip is fine (CDN already written).
+   */
+  async function handleToggleStatus(a: AssessmentDoc) {
+    if (a.status === "active") {
+      statusMutation.mutate({ id: a.id, status: "draft" });
+    } else {
+      const full = await getAssessment(a.id);
+      if (!full) { toast.error("Could not load assessment for publishing."); return; }
+      saveMutation.mutate({ d: draftFromDoc(full ?? a), status: "active" });
+    }
+  }
+
   /* ── Bulk import from seed-contents questions_index.json ── */
   const [importing, setImporting] = useState(false);
 
@@ -466,9 +482,7 @@ function CodingCreatorPage() {
         onCreate={() => setDraft(emptyDraft())}
         onEdit={openEdit}
         onDuplicate={(a) => duplicateMutation.mutate(a.id)}
-        onToggleStatus={(a) =>
-          statusMutation.mutate({ id: a.id, status: a.status === "active" ? "draft" : "active" })
-        }
+        onToggleStatus={handleToggleStatus}
         onArchive={(a) => statusMutation.mutate({ id: a.id, status: "archived" })}
         onDelete={(a) => setPendingDelete(a)}
         pendingDelete={pendingDelete}
@@ -515,8 +529,8 @@ function CodingCreatorPage() {
                   <div className="space-y-2">
                     <Label htmlFor="coding-duration">Duration (min)</Label>
                     <Input id="coding-duration" type="number" min={1} className="rounded-xl"
-                      value={draft.durationMinutes}
-                      onChange={(e) => setDraft((prev) => prev ? { ...prev, durationMinutes: Number(e.target.value) || 0 } : prev)} />
+                      value={draft.durationMinutes || ""}
+                      onChange={(e) => setDraft((prev) => prev ? { ...prev, durationMinutes: e.target.value === "" ? 0 : Number(e.target.value) } : prev)} />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="coding-pass">Pass %</Label>
@@ -525,11 +539,28 @@ function CodingCreatorPage() {
                       onChange={(e) => setDraft((prev) => prev ? { ...prev, passPercentage: Number(e.target.value) || 0 } : prev)} />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="coding-total">Total marks</Label>
+                    <Label htmlFor="coding-total">
+                      Total marks
+                      {draft.totalMarksOverride !== null && (
+                        <button
+                          type="button"
+                          className="ml-2 text-[10px] text-muted-foreground underline hover:text-foreground"
+                          onClick={() => setDraft((prev) => prev ? { ...prev, totalMarksOverride: null } : prev)}
+                        >
+                          reset to auto ({computedMarks})
+                        </button>
+                      )}
+                    </Label>
                     <Input id="coding-total" type="number" min={0} className="rounded-xl"
-                      placeholder={String(computedMarks)}
-                      value={draft.totalMarksOverride ?? computedMarks}
-                      onChange={(e) => setDraft((prev) => prev ? { ...prev, totalMarksOverride: Number(e.target.value) || 0 } : prev)} />
+                      placeholder={`Auto: ${computedMarks}`}
+                      value={draft.totalMarksOverride ?? ""}
+                      onChange={(e) => setDraft((prev) => prev ? {
+                        ...prev,
+                        totalMarksOverride: e.target.value === "" ? null : Number(e.target.value),
+                      } : prev)} />
+                    <p className="text-xs text-muted-foreground">
+                      Leave blank to use auto-computed sum ({computedMarks} pts). Type to override.
+                    </p>
                   </div>
                 </div>
 

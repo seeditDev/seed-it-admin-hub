@@ -61,6 +61,11 @@ export interface MSASection {
    */
   assessmentId?: string;
   duration_minutes: number;
+  /**
+   * Total marks for this section — auto-populated from the linked assessment's totalMarks.
+   * Used to compute the MSA's overall totalMarks automatically.
+   */
+  totalMarks?: number;
   /** Optional per-question timer in seconds (0 = none) */
   questionTimer: number;
   /**
@@ -395,11 +400,16 @@ export async function saveTest(
     }
   }
 
-  // For MSA, compute total duration from sections
+  // For MSA, compute total duration AND total marks from sections
   const duration =
     resolvedType === "msa" && input.sections.length > 0
       ? input.sections.reduce((sum, s) => sum + (Number(s.duration_minutes) || 0), 0)
       : resolvedDuration;
+
+  const finalMarks =
+    resolvedType === "msa" && input.sections.length > 0
+      ? input.sections.reduce((sum, s) => sum + (Number(s.totalMarks) || 0), 0)
+      : resolvedMarks;
 
   const ref = doc(getDb(), COURSES, courseId, "series", seriesId, "tests", id);
   const payload: Record<string, unknown> = {
@@ -413,7 +423,7 @@ export async function saveTest(
     assessmentVersion: resolvedVersion,
     sections: resolvedType === "msa" ? input.sections : [],
     duration_minutes: duration,
-    totalMarks: resolvedMarks,
+    totalMarks: finalMarks,
     difficulty: input.difficulty,
     proctored: input.proctored,
     audioProctored: input.audioProctored,
