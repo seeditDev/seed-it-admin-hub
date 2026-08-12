@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
-import { generateMarksExcel, generateSectionExcel } from "@/services/reports/excelReport";
+import { generateMarksExcel, generateAssessmentWorkbook, generateSectionExcel } from "@/services/reports/excelReport";
 import { generateCsv } from "@/services/reports/csvReport";
 import { generateStudentPdf, generateBulkPdf, generateBulkZip } from "@/services/reports/pdfReport";
 import { normalizeResults } from "@/services/reports/reportNormalizer";
+import { computeAssessmentGroups } from "@/services/reports/reportAnalytics";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -201,6 +202,7 @@ function ReportsPage() {
   const [tab, setTab] = useState("overview");
   const [isZipping, setIsZipping] = useState(false);
   const [zipProgress, setZipProgress] = useState(0);
+  const [isExporting, setIsExporting] = useState(false);
 
   const tenantsQ = useQuery({ queryKey: ["tenants"], queryFn: listTenants });
   const assessmentsQ = useQuery({ queryKey: ["assessments"], queryFn: listAssessments });
@@ -387,80 +389,140 @@ function ReportsPage() {
     return f;
   }
 
-  function exportExcel() {
+  async function exportExcel() {
+    if (isExporting) return;
+    if (tab !== "violations" && tab !== "pivot" && normalizedResults.length === 0) {
+      toast.error("No assessment results available for the selected filters.");
+      return;
+    }
+    setIsExporting(true);
     try {
       if (tab === "violations") {
-        import("xlsx").then((XLSX) => {
-          const book = XLSX.utils.book_new();
-          XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(filteredEvents.map((e) => ({ Timestamp: e.at?.toISOString() ?? "", Student: e.displayName, Email: e.email, Assessment: e.assessmentTitle, Type: e.type, Severity: e.severity, Detail: e.detail }))), "Violations");
-          XLSX.writeFile(book, `seed-it-violations-${Date.now()}.xlsx`);
-          toast.success("Violations Excel ready");
-        }).catch(() => toast.error("Excel export failed"));
+        const XLSX = await import("xlsx");
+        const book = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(filteredEvents.map((e) => ({ Timestamp: e.at?.toISOString() ?? "", Student: e.displayName, Email: e.email, Assessment: e.assessmentTitle, Type: e.type, Severity: e.severity, Detail: e.detail }))), "Violations");
+        XLSX.writeFile(book, `seed-it-violations-${Date.now()}.xlsx`);
+        toast.success("Violations Excel report downloaded");
       } else if (tab === "pivot" && pivot) {
-        import("xlsx").then((XLSX) => {
-          const book = XLSX.utils.book_new();
-          const hdrs = ["Name", "Email", "Roll", "College", "Dept", ...pivot.asmCols.map(([, t]) => t + " (%)")];
-          const rows = pivot.students.map((s) => [s.name, s.email, s.roll, s.college, s.dept, ...pivot.asmCols.map(([id]) => { const sc = s.scores.get(id); return sc ? pf.format(sc.pct) : "—"; })]);
-          XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([hdrs, ...rows]), "Score Matrix");
-          XLSX.writeFile(book, `seed-it-matrix-${Date.now()}.xlsx`);
-          toast.success("Excel export ready");
-        }).catch(() => toast.error("Excel export failed"));
+        const XLSX = await import("xlsx");
+        const book = XLSX.utils.book_new();
+        const hdrs = ["Name", "Email", "Roll", "College", "Dept", ...pivot.asmCols.map(([, t]) => t + " (%)")];
+        const rows = pivot.students.map((s) => [s.name, s.email, s.roll, s.college, s.dept, ...pivot.asmCols.map(([id]) => { const sc = s.scores.get(id); return sc ? pf.format(sc.pct) : "—"; })]);
+        XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([hdrs, ...rows]), "Score Matrix");
+        XLSX.writeFile(book, `seed-it-matrix-${Date.now()}.xlsx`);
+        toast.success("Score Matrix Excel report downloaded");
+      } else if (assessmentFilter !== "all") {
+        const groups = computeAssessmentGroups(normalizedResults);
+        if (groups.length > 0) {
+          generateAssessmentWorkbook(groups[0]!);
+          toast.success("Full Assessment Workbook Excel downloaded (Summary + Test Results)");
+        } else {
+          generateMarksExcel(normalizedResults, getExportFilters());
+          toast.success("Marks Excel report downloaded");
+        }
       } else {
         generateMarksExcel(normalizedResults, getExportFilters());
-        toast.success("Styled Excel report ready");
+        toast.success("Styled Marks Excel report downloaded");
       }
-    } catch { toast.error("Excel export failed"); }
+    } catch (err) {
+      toast.error(`Excel export failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsExporting(false);
+    }
   }
 
   function exportSectionAnalysis() {
-    generateSectionExcel(normalizedResults);
-    toast.success("Section analysis Excel ready");
+    if (normalizedResults.length === 0) {
+      toast.error("No assessment results available for the selected filters.");
+      return;
+    }
+    try {
+      generateSectionExcel(normalizedResults);
+      toast.success("Section Analysis Excel downloaded");
+    } catch (err) {
+      toast.error(`Section Analysis export failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   function exportCsv() {
-    if (tab === "violations") {
-      downloadCsv(`seed-it-violations-${Date.now()}.csv`, ["Timestamp", "Student", "Email", "Assessment", "Type", "Severity", "Detail"], filteredEvents.map((e) => [e.at?.toISOString() ?? "", e.displayName, e.email, e.assessmentTitle, e.type, e.severity, e.detail]));
-      toast.success("CSV downloaded");
-    } else if (tab === "pivot" && pivot) {
-      const hdrs = ["Name", "Email", "Roll", "College", "Dept", ...pivot.asmCols.map(([, t]) => t + " (%)")];
-      downloadCsv(`seed-it-matrix-${Date.now()}.csv`, hdrs, pivot.students.map((s) => [s.name, s.email, s.roll, s.college, s.dept, ...pivot.asmCols.map(([id]) => { const sc = s.scores.get(id); return sc ? pf.format(sc.pct) : ""; })]));
-      toast.success("CSV downloaded");
-    } else {
-      generateCsv(normalizedResults, getExportFilters());
-      toast.success("CSV downloaded");
+    if (isExporting) return;
+    if (tab !== "violations" && tab !== "pivot" && normalizedResults.length === 0) {
+      toast.error("No assessment results available for the selected filters.");
+      return;
+    }
+    setIsExporting(true);
+    try {
+      if (tab === "violations") {
+        downloadCsv(`seed-it-violations-${Date.now()}.csv`, ["Timestamp", "Student", "Email", "Assessment", "Type", "Severity", "Detail"], filteredEvents.map((e) => [e.at?.toISOString() ?? "", e.displayName, e.email, e.assessmentTitle, e.type, e.severity, e.detail]));
+        toast.success("Violations CSV downloaded");
+      } else if (tab === "pivot" && pivot) {
+        const hdrs = ["Name", "Email", "Roll", "College", "Dept", ...pivot.asmCols.map(([, t]) => t + " (%)")];
+        downloadCsv(`seed-it-matrix-${Date.now()}.csv`, hdrs, pivot.students.map((s) => [s.name, s.email, s.roll, s.college, s.dept, ...pivot.asmCols.map(([id]) => { const sc = s.scores.get(id); return sc ? pf.format(sc.pct) : ""; })]));
+        toast.success("Score Matrix CSV downloaded");
+      } else {
+        generateCsv(normalizedResults, getExportFilters());
+        toast.success("CSV report downloaded");
+      }
+    } catch (err) {
+      toast.error(`CSV export failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsExporting(false);
     }
   }
 
   async function exportPdf() {
-    if (normalizedResults.length === 0) { toast.error("No results to export"); return; }
+    if (isExporting) return;
+    if (normalizedResults.length === 0) {
+      toast.error("No assessment results available for the selected filters.");
+      return;
+    }
+    setIsExporting(true);
     try {
       toast.info("Generating PDF report…");
       await generateBulkPdf(normalizedResults, getExportFilters());
-      toast.success("PDF report downloaded!");
-    } catch { toast.error("PDF export failed"); }
+      toast.success("Bulk PDF report downloaded!");
+    } catch (err) {
+      toast.error(`PDF export failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsExporting(false);
+    }
   }
 
   async function exportZip() {
-    if (normalizedResults.length === 0) { toast.error("No results to export"); return; }
+    if (isExporting || isZipping) return;
+    if (normalizedResults.length === 0) {
+      toast.error("No assessment results available for the selected filters.");
+      return;
+    }
+    setIsExporting(true);
     setIsZipping(true);
     setZipProgress(0);
     try {
       toast.info(`Generating ZIP for ${normalizedResults.length} students…`);
       await generateBulkZip(normalizedResults, getExportFilters(), (pct) => setZipProgress(pct));
       toast.success("ZIP archive downloaded!");
-    } catch { toast.error("ZIP export failed"); }
-    finally { setIsZipping(false); setZipProgress(0); }
+    } catch (err) {
+      toast.error(`ZIP export failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsZipping(false);
+      setIsExporting(false);
+      setZipProgress(0);
+    }
   }
 
   async function printIndividualReport(r: ResultRow) {
     try {
       const normalized = normalizeResults([r], tenantNameOf, passThreshold);
       if (normalized[0]) {
-        toast.info("Generating PDF…");
+        toast.info("Generating individual PDF…");
         await generateStudentPdf(normalized[0]);
         toast.success("Individual PDF downloaded!");
+      } else {
+        toast.error("Could not normalize student result for PDF generation.");
       }
-    } catch { toast.error("PDF generation failed"); }
+    } catch (err) {
+      toast.error(`Individual PDF generation failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   /* ─────────────────────── RENDER ─────────────────────── */
@@ -474,16 +536,16 @@ function ReportsPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" className="rounded-xl" onClick={exportCsv} disabled={normalizedResults.length === 0}>
-            <Download className="size-4" /> CSV
+          <Button variant="outline" className="rounded-xl" onClick={exportCsv} disabled={isExporting || isZipping || normalizedResults.length === 0}>
+            <Download className="size-4" /> {isExporting ? "Exporting..." : "CSV"}
           </Button>
-          <Button variant="outline" className="rounded-xl" onClick={exportExcel} disabled={normalizedResults.length === 0}>
-            <FileSpreadsheet className="size-4" /> Excel
+          <Button variant="outline" className="rounded-xl" onClick={exportExcel} disabled={isExporting || isZipping || normalizedResults.length === 0}>
+            <FileSpreadsheet className="size-4" /> {isExporting ? "Exporting..." : "Excel"}
           </Button>
-          <Button variant="outline" className="rounded-xl" onClick={exportPdf} disabled={normalizedResults.length === 0}>
-            <FileText className="size-4" /> PDF
+          <Button variant="outline" className="rounded-xl" onClick={exportPdf} disabled={isExporting || isZipping || normalizedResults.length === 0}>
+            <FileText className="size-4" /> {isExporting ? "Exporting..." : "PDF"}
           </Button>
-          <Button variant="outline" className="rounded-xl" onClick={exportZip} disabled={isZipping || normalizedResults.length === 0}>
+          <Button variant="outline" className="rounded-xl" onClick={exportZip} disabled={isExporting || isZipping || normalizedResults.length === 0}>
             <Download className="size-4" /> {isZipping ? `ZIP ${zipProgress}%` : "ZIP All"}
           </Button>
         </div>
