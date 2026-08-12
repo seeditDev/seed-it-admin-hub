@@ -522,8 +522,8 @@ function McqCreatorPage() {
 
   /* ── Mutations ── */
   const saveMutation = useMutation({
-    mutationFn: async (vars: { d: McqDraft; status?: AssessmentDoc["status"] }) => {
-      const { d, status } = vars;
+    mutationFn: async (vars: { d: McqDraft; status?: AssessmentDoc["status"]; createSlug?: boolean }) => {
+      const { d, status, createSlug } = vars;
       const resolvedStatus = status ?? (d.id ? undefined : "draft");
 
       // 1. Save to Firestore
@@ -550,8 +550,10 @@ function McqCreatorPage() {
         account?.uid,
       );
 
-      // 2. If publishing, upload JSON to seed-contents + register CDN URL
-      if (resolvedStatus === "active") {
+      // 2. Upload JSON slug to seed-contents + register in contentUrls
+      //    Triggers when: (a) 'Create Slug' button pressed [createSlug=true], OR
+      //                   (b) status toggled to active from list card [status='active']
+      if (createSlug === true || resolvedStatus === "active") {
         let uploadedUrl: string | null = null;
 
         // Try GitHub upload
@@ -618,23 +620,27 @@ function McqCreatorPage() {
           console.warn("contentUrls registration failed:", regErr);
         }
 
-        return { id, cdnUrl: uploadedUrl };
+        return { id, cdnUrl: uploadedUrl, totalMarks: d.totalMarksOverride ?? computedMarks, durationMinutes: d.durationMinutes };
       }
 
       return { id, cdnUrl: null };
     },
     onSuccess: (result) => {
       if (result?.cdnUrl) {
-        toast.success(`Test slug created ✓`, {
+        toast.success(`Slug created ✓ (saved as draft)`, {
           duration: 12000,
-          description: `JSON URL: ${result.cdnUrl}  — Copy it and map it in Courses & Assessments → Test slot.`,
+          description: [
+            `${result.durationMinutes} min · ${result.totalMarks} marks`,
+            `URL: ${result.cdnUrl}`,
+            `Map it in Courses & Assessments → Test slot. Activate when ready.`,
+          ].join("  ·  "),
           action: {
             label: "Copy URL",
             onClick: () => navigator.clipboard.writeText(result.cdnUrl!),
           },
         });
       } else {
-        toast.success("MCQ assessment saved — map it via Courses & Assessments.");
+        toast.success("MCQ assessment saved as draft — create slug to map it in Courses & Assessments.");
       }
       setDraft(null);
       void qc.invalidateQueries({ queryKey: ["assessments"] });
@@ -1017,10 +1023,10 @@ function McqCreatorPage() {
                 <Button
                   className="rounded-xl"
                   disabled={validationErrors.length > 0 || saveMutation.isPending}
-                  onClick={() => draft && saveMutation.mutate({ d: draft, status: "active" })}
+                  onClick={() => draft && saveMutation.mutate({ d: draft, status: "draft", createSlug: true })}
                 >
                   {saveMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : null}
-                  Publish &amp; Create Slug
+                  Create Slug (save as draft)
                 </Button>
               </DialogFooter>
             </>
