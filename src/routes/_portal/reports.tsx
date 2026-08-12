@@ -1,4 +1,8 @@
 import { useMemo, useState } from "react";
+import { generateMarksExcel, generateSectionExcel } from "@/services/reports/excelReport";
+import { generateCsv } from "@/services/reports/csvReport";
+import { generateStudentPdf, generateBulkPdf, generateBulkZip } from "@/services/reports/pdfReport";
+import { normalizeResults } from "@/services/reports/reportNormalizer";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -195,6 +199,8 @@ function ReportsPage() {
   const [search, setSearch] = useState("");
   const [passThreshold, setPassThreshold] = useState(40);
   const [tab, setTab] = useState("overview");
+  const [isZipping, setIsZipping] = useState(false);
+  const [zipProgress, setZipProgress] = useState(0);
 
   const tenantsQ = useQuery({ queryKey: ["tenants"], queryFn: listTenants });
   const assessmentsQ = useQuery({ queryKey: ["assessments"], queryFn: listAssessments });
@@ -363,102 +369,98 @@ function ReportsPage() {
     return [r.rank ?? "", r.displayName || r.email, r.email, r.rollNumber || "—", tenantNameOf.get(r.tenantId) ?? r.tenantId, normaliseYear(r.cohortId) ?? "—", r.department || "—", r.assessmentTitle, r.totalScore, r.maxScore, pf.format(r.percentage), r.percentage >= passThreshold ? "Pass" : "Fail", r.violations, r.submittedAt?.toLocaleDateString() ?? "—"];
   }
 
-  async function exportExcel() {
+  /** Normalized result set for the report engine (summary-level, no raw doc). */
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const normalizedResults = useMemo(
+    () => normalizeResults(filteredResults, tenantNameOf, passThreshold),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [filteredResults, passThreshold]
+  );
+
+  function getExportFilters(): { testName?: string; college?: string; year?: string } {
+    const f: { testName?: string; college?: string; year?: string } = {};
+    const aTitle = assessmentOptions.find(a => a.id === assessmentFilter)?.title;
+    if (assessmentFilter !== "all" && aTitle) f.testName = aTitle;
+    const cName = tenantNameOf.get(tenantFilter);
+    if (tenantFilter !== "all" && cName) f.college = cName;
+    if (yearFilter !== "all") f.year = yearFilter;
+    return f;
+  }
+
+  function exportExcel() {
     try {
-      const XLSX = await import("xlsx");
-      const book = XLSX.utils.book_new();
-      if (tab === "rank") {
-        XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([detailHeaders, ...ranked.map(detailRow)]), "Rank List");
+      if (tab === "violations") {
+        import("xlsx").then((XLSX) => {
+          const book = XLSX.utils.book_new();
+          XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(filteredEvents.map((e) => ({ Timestamp: e.at?.toISOString() ?? "", Student: e.displayName, Email: e.email, Assessment: e.assessmentTitle, Type: e.type, Severity: e.severity, Detail: e.detail }))), "Violations");
+          XLSX.writeFile(book, `seed-it-violations-${Date.now()}.xlsx`);
+          toast.success("Violations Excel ready");
+        }).catch(() => toast.error("Excel export failed"));
       } else if (tab === "pivot" && pivot) {
-        const hdrs = ["Name", "Email", "Roll", "College", "Dept", ...pivot.asmCols.map(([, t]) => t + " (%)")];
-        const rows = pivot.students.map((s) => [s.name, s.email, s.roll, s.college, s.dept, ...pivot.asmCols.map(([id]) => { const sc = s.scores.get(id); return sc ? pf.format(sc.pct) : "—"; })]);
-        XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([hdrs, ...rows]), "Score Matrix");
-      } else if (tab === "violations") {
-        XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(filteredEvents.map((e) => ({ Timestamp: e.at?.toISOString() ?? "", Student: e.displayName, Email: e.email, Assessment: e.assessmentTitle, Type: e.type, Severity: e.severity, Detail: e.detail }))), "Violations");
+        import("xlsx").then((XLSX) => {
+          const book = XLSX.utils.book_new();
+          const hdrs = ["Name", "Email", "Roll", "College", "Dept", ...pivot.asmCols.map(([, t]) => t + " (%)")];
+          const rows = pivot.students.map((s) => [s.name, s.email, s.roll, s.college, s.dept, ...pivot.asmCols.map(([id]) => { const sc = s.scores.get(id); return sc ? pf.format(sc.pct) : "—"; })]);
+          XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([hdrs, ...rows]), "Score Matrix");
+          XLSX.writeFile(book, `seed-it-matrix-${Date.now()}.xlsx`);
+          toast.success("Excel export ready");
+        }).catch(() => toast.error("Excel export failed"));
       } else {
-        XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([detailHeaders, ...filteredResults.map(r => detailRow(r))]), "Overview");
-        XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(byCollege.map((c) => ({ College: c.college, "Avg %": c.avg, "Pass Rate %": c.passRate, Attempts: c.count }))), "By College");
+        generateMarksExcel(normalizedResults, getExportFilters());
+        toast.success("Styled Excel report ready");
       }
-      XLSX.writeFile(book, `seed-it-reports-${tab}-${Date.now()}.xlsx`);
-      toast.success("Excel export ready");
     } catch { toast.error("Excel export failed"); }
   }
 
+  function exportSectionAnalysis() {
+    generateSectionExcel(normalizedResults);
+    toast.success("Section analysis Excel ready");
+  }
+
   function exportCsv() {
-    if (tab === "rank") {
-      downloadCsv(`seed-it-rank-${Date.now()}.csv`, detailHeaders, ranked.map(detailRow));
+    if (tab === "violations") {
+      downloadCsv(`seed-it-violations-${Date.now()}.csv`, ["Timestamp", "Student", "Email", "Assessment", "Type", "Severity", "Detail"], filteredEvents.map((e) => [e.at?.toISOString() ?? "", e.displayName, e.email, e.assessmentTitle, e.type, e.severity, e.detail]));
+      toast.success("CSV downloaded");
     } else if (tab === "pivot" && pivot) {
       const hdrs = ["Name", "Email", "Roll", "College", "Dept", ...pivot.asmCols.map(([, t]) => t + " (%)")];
       downloadCsv(`seed-it-matrix-${Date.now()}.csv`, hdrs, pivot.students.map((s) => [s.name, s.email, s.roll, s.college, s.dept, ...pivot.asmCols.map(([id]) => { const sc = s.scores.get(id); return sc ? pf.format(sc.pct) : ""; })]));
-    } else if (tab === "violations") {
-      downloadCsv(`seed-it-violations-${Date.now()}.csv`, ["Timestamp", "Student", "Email", "Assessment", "Type", "Severity", "Detail"], filteredEvents.map((e) => [e.at?.toISOString() ?? "", e.displayName, e.email, e.assessmentTitle, e.type, e.severity, e.detail]));
+      toast.success("CSV downloaded");
     } else {
-      downloadCsv(`seed-it-overview-${Date.now()}.csv`, detailHeaders, filteredResults.map(r => detailRow(r)));
+      generateCsv(normalizedResults, getExportFilters());
+      toast.success("CSV downloaded");
     }
-    toast.success("CSV downloaded");
   }
 
-  function exportPdf() {
-    if (tab === "rank") printRows("Rank List — SEED-IT", detailHeaders, ranked.map(detailRow));
-    else if (tab === "violations") printRows("Proctoring Violations — SEED-IT", ["Timestamp", "Student", "Assessment", "Type", "Severity", "Detail"], filteredEvents.map((e) => [e.at?.toLocaleString() ?? "—", e.displayName, e.assessmentTitle, e.type, e.severity, e.detail]));
-    else printRows("Performance Overview — SEED-IT", detailHeaders, filteredResults.map(r => detailRow(r)));
-    toast.success("Opening printable view…");
+  async function exportPdf() {
+    if (normalizedResults.length === 0) { toast.error("No results to export"); return; }
+    try {
+      toast.info("Generating PDF report…");
+      await generateBulkPdf(normalizedResults.slice(0, 100), getExportFilters());
+      toast.success("PDF report downloaded!");
+    } catch { toast.error("PDF export failed"); }
   }
 
-  function printIndividualReport(r: ResultRow) {
-    const win = window.open("", "_blank", "width=900,height=700");
-    if (!win) { toast.error("Pop-up blocked — allow pop-ups to export PDF"); return; }
-    const pass = r.percentage >= passThreshold;
-    const college = he(tenantNameOf.get(r.tenantId) ?? r.tenantId);
-    const style = `
-      body{font-family:ui-sans-serif,system-ui,sans-serif;padding:32px;color:#111;max-width:720px;margin:0 auto}
-      h1{font-size:20px;font-weight:700;margin-bottom:2px}h2{font-size:13px;font-weight:600;margin:20px 0 8px;color:#444;border-bottom:1px solid #e5e5e5;padding-bottom:4px}
-      .badge{display:inline-block;padding:3px 12px;border-radius:999px;font-size:12px;font-weight:700;color:#fff}
-      .pass{background:#16a34a}.fail{background:#dc2626}
-      .meta{font-size:12px;color:#666;margin-bottom:16px}
-      table{width:100%;border-collapse:collapse;font-size:12px;margin-top:4px}
-      th,td{border:1px solid #e5e5e5;padding:6px 10px;text-align:left}
-      th{background:#f5f5f5;font-weight:600}tr:nth-child(even){background:#fafafa}
-      .score-big{font-size:36px;font-weight:800;color:${pass?"#16a34a":"#dc2626"}}
-      .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}
-      .stat-box{border:1px solid #e5e5e5;border-radius:8px;padding:12px;text-align:center}
-      .stat-label{font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em}
-      .stat-val{font-size:20px;font-weight:700;margin-top:4px}
-      @media print{body{padding:12px}}
-    `;
-    const body = `
-      <h1>Individual Assessment Report</h1>
-      <p class="meta">SEED-IT Platform &middot; Generated: ${new Date().toLocaleString()}</p>
-      <h2>Student Details</h2>
-      <table>
-        <tr><th>Name</th><td>${he(r.displayName || r.email)}</td><th>Email</th><td>${he(r.email)}</td></tr>
-        <tr><th>Roll No.</th><td>${he(r.rollNumber || "\u2014")}</td><th>College</th><td>${college}</td></tr>
-        <tr><th>Year</th><td>${he(normaliseYear(r.cohortId) ?? "\u2014")}</td><th>Department</th><td>${he(r.department || "\u2014")}</td></tr>
-      </table>
-      <h2>Assessment Performance</h2>
-      <table>
-        <tr><th>Assessment</th><td colspan="3">${he(r.assessmentTitle)}</td></tr>
-        <tr><th>Score</th><td>${r.totalScore} / ${r.maxScore}</td><th>Percentage</th><td>${pf.format(r.percentage)}%</td></tr>
-        <tr><th>Status</th><td><span class="badge ${pass ? "pass" : "fail"}">${pass ? "PASS" : "FAIL"}</span></td><th>Pass Threshold</th><td>${passThreshold}%</td></tr>
-        <tr><th>Submitted</th><td>${he(r.submittedAt?.toLocaleString() ?? "\u2014")}</td><th>Violations</th><td>${r.violations || 0}</td></tr>
-      </table>
-      <div class="grid2">
-        <div class="stat-box">
-          <div class="stat-label">Score</div>
-          <div class="stat-val" style="color:${pass?'#16a34a':'#dc2626'}">${r.totalScore}/${r.maxScore}</div>
-        </div>
-        <div class="stat-box">
-          <div class="stat-label">Percentage</div>
-          <div class="stat-val" style="color:${pass?'#16a34a':'#dc2626'}">${pf.format(r.percentage)}%</div>
-        </div>
-      </div>
-      ${r.violations > 0 ? `<h2>Proctoring Violations</h2><p style="font-size:12px;color:#dc2626">&#9888; This student had ${r.violations} proctoring violation(s) recorded during this assessment.</p>` : ""}
-      <p style="margin-top:32px;font-size:10px;color:#aaa;text-align:center">SEED-IT Admin Platform &mdash; Confidential</p>
-    `;
-    win.document.write(`<!doctype html><html><head><title>Report &mdash; ${he(r.displayName)}</title><style>${style}</style></head><body>${body}</body></html>`);
-    win.document.close(); win.focus();
-    setTimeout(() => win.print(), 400);
-    toast.success("Opening individual report…");
+  async function exportZip() {
+    if (normalizedResults.length === 0) { toast.error("No results to export"); return; }
+    setIsZipping(true);
+    setZipProgress(0);
+    try {
+      toast.info(`Generating ZIP for ${normalizedResults.length} students…`);
+      await generateBulkZip(normalizedResults, getExportFilters(), (pct) => setZipProgress(pct));
+      toast.success("ZIP archive downloaded!");
+    } catch { toast.error("ZIP export failed"); }
+    finally { setIsZipping(false); setZipProgress(0); }
+  }
+
+  async function printIndividualReport(r: ResultRow) {
+    try {
+      const normalized = normalizeResults([r], tenantNameOf, passThreshold);
+      if (normalized[0]) {
+        toast.info("Generating PDF…");
+        await generateStudentPdf(normalized[0]);
+        toast.success("Individual PDF downloaded!");
+      }
+    } catch { toast.error("PDF generation failed"); }
   }
 
   /* ─────────────────────── RENDER ─────────────────────── */
@@ -471,15 +473,18 @@ function ReportsPage() {
             Performance analytics, rankings, individual analysis and proctoring violations across colleges.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" className="rounded-xl" onClick={exportCsv}>
             <Download className="size-4" /> CSV
           </Button>
           <Button variant="outline" className="rounded-xl" onClick={exportExcel}>
             <FileSpreadsheet className="size-4" /> Excel
           </Button>
-          <Button variant="outline" className="rounded-xl" onClick={exportPdf}>
-            <Printer className="size-4" /> PDF
+          <Button variant="outline" className="rounded-xl" onClick={exportPdf} disabled={normalizedResults.length === 0}>
+            <FileText className="size-4" /> PDF
+          </Button>
+          <Button variant="outline" className="rounded-xl" onClick={exportZip} disabled={isZipping || normalizedResults.length === 0}>
+            <Download className="size-4" /> {isZipping ? `ZIP ${zipProgress}%` : "ZIP All"}
           </Button>
         </div>
       </div>
