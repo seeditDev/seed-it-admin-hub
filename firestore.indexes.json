@@ -1,4 +1,4 @@
-﻿{
+{
   "indexes": [
     {
       "collectionGroup": "users",
@@ -46,7 +46,38 @@
       "fields": [
         { "fieldPath": "completed", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "tests",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "assessmentId", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cohorts",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "allowedModules", "arrayConfig": "CONTAINS" }
+      ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      "collectionGroup": "tests",
+      "fieldPath": "assessmentId",
+      "indexes": [
+        { "queryScope": "COLLECTION", "order": "ASCENDING" },
+        { "queryScope": "COLLECTION_GROUP", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "cohorts",
+      "fieldPath": "allowedModules",
+      "indexes": [
+        { "queryScope": "COLLECTION", "arrayConfig": "CONTAINS" },
+        { "queryScope": "COLLECTION_GROUP", "arrayConfig": "CONTAINS" }
+      ]
+    }
+  ]
 }
