@@ -53,13 +53,14 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { listTenants } from "@/lib/firestore/tenants";
 import {
-  generateAssessmentCode,
   deleteAssessment,
   duplicateAssessment,
+  generateAssessmentCode,
   getAssessment,
   listAssessments,
   saveAssessment,
   setAssessmentStatus,
+  updateAssessmentCdnUrl,
   type AssessmentDoc,
 } from "@/lib/firestore/assessments";
 import {
@@ -597,8 +598,10 @@ function McqCreatorPage() {
           const { path } = mcqAssessmentPath(id, d.title);
           uploadedUrl = await uploadSeedContent(path, assessmentJson, `Add MCQ assessment: ${d.title}`);
 
-          // Store cdnUrl on assessment doc
-          await saveAssessment({ id, title: d.title, type: "mcq", cdnUrl: uploadedUrl });
+          // Store cdnUrl on assessment doc — ONLY cdnUrl, nothing else.
+          // updateAssessmentCdnUrl is a surgical merge that NEVER touches
+          // durationMinutes, totalMarks, status, questions, targeting, version.
+          await updateAssessmentCdnUrl(id, uploadedUrl);
         } catch (githubErr) {
           console.error("seed-contents upload failed:", githubErr);
           toast.warning("GitHub upload failed — assessment saved in Firestore only. Check VITE_GITHUB_PAT.");

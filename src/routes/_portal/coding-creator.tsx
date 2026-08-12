@@ -51,6 +51,7 @@ import {
   listAssessments,
   saveAssessment,
   setAssessmentStatus,
+  updateAssessmentCdnUrl,
   type AssessmentDoc,
 } from "@/lib/firestore/assessments";
 import {
@@ -322,8 +323,10 @@ function CodingCreatorPage() {
             `Add coding assessment: ${d.title}`,
           );
 
-          // Save cdnUrl back to Firestore assessment doc
-          await saveAssessment({ id, title: d.title, type: "coding", cdnUrl: uploadedUrl });
+          // Store cdnUrl on assessment doc — ONLY cdnUrl, nothing else.
+          // updateAssessmentCdnUrl is a surgical merge that NEVER touches
+          // durationMinutes, totalMarks, status, challenges, targeting, version.
+          await updateAssessmentCdnUrl(id, uploadedUrl);
         } catch (githubErr) {
           console.error("seed-contents upload failed:", githubErr);
           toast.warning("GitHub upload failed — assessment saved in Firestore only. Check VITE_GITHUB_PAT.");

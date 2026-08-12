@@ -215,16 +215,29 @@ export type AssessmentInput = {
   type: AssessmentType;
 };
 
-/** Creates or updates an assessment. Returns the document id. */
+/** Creates or updates an assessment. Returns the document id.
+ *
+ * PARTIAL-UPDATE SEMANTICS:
+ *   NEW (no input.id):      all fields written with sensible defaults.
+ *   EXISTING (input.id set): ONLY fields explicitly present in `input` are
+ *                            written. Omitted fields are preserved untouched in
+ *                            Firestore. This ensures a CDN write-back such as:
+ *
+ *     saveAssessment({ id, title, type, cdnUrl })
+ *
+ *   does NOT zero out durationMinutes / totalMarks / status / questions etc.
+ *
+ * For pure CDN-only updates, prefer the dedicated updateAssessmentCdnUrl().
+ */
 export async function saveAssessment(input: AssessmentInput, createdBy?: string): Promise<string> {
+  const isNew = !input.id?.trim();
   const id = input.id?.trim() || `${input.type}-${slugify(input.title)}-${Date.now().toString(36)}`;
 
-  // Compute next version:
-  //   - New doc: version = 1
-  //   - Existing active doc: version = currentVersion + 1 (bump on every save)
-  //   - Existing draft doc: version stays at current (or 1 if not set)
+  // ── Version computation ─────────────────────────────────────────────────
+  // Bump version when an already-active assessment is saved with content changes.
+  // CDN-only updates (updateAssessmentCdnUrl) bypass this entirely.
   let nextVersion = 1;
-  if (input.id?.trim()) {
+  if (!isNew) {
     const existing = await getDoc(doc(getDb(), ASSESSMENTS, id)).catch(() => null);
     if (existing?.exists()) {
       const d = existing.data() as Record<string, unknown>;
@@ -235,41 +248,95 @@ export async function saveAssessment(input: AssessmentInput, createdBy?: string)
     }
   }
 
+  // ── Always-present fields ────────────────────────────────────────────────
   const payload: Record<string, unknown> = {
     id,
     title: input.title.trim(),
     type: input.type,
-    description: input.description ?? "",
-    instructions: input.instructions ?? "",
-    tenantId: input.targeting?.tenantIds?.length === 1 ? input.targeting.tenantIds[0] : "ALL",
-    targeting: input.targeting ?? DEFAULT_TARGETING,
-    durationMinutes: Number(input.durationMinutes ?? 0),
-    totalMarks: Number(input.totalMarks ?? 0),
-    negativeMarking: Number(input.negativeMarking ?? 0),
-    passPercentage: Number(input.passPercentage ?? 40),
-    status: input.status ?? "draft",
-    scheduledStart: input.scheduledStart ?? null,
-    scheduledEnd: input.scheduledEnd ?? null,
-    proctorConfig: input.proctorConfig ?? DEFAULT_PROCTOR_CONFIG,
     version: nextVersion,
     updatedAt: serverTimestamp(),
   };
-  if (input.questions) payload['questions'] = input.questions;
-  if (input.problem) payload['problem'] = input.problem;
-  if (input.challenges && input.challenges.length > 0) payload['challenges'] = input.challenges;
-  if (input.prompts) payload['prompts'] = input.prompts;
-  if (input.rubric) payload['rubric'] = input.rubric;
-  // CDN URL — set when the assessment JSON has been published to seed-contents
-  if (input.cdnUrl !== undefined) payload['cdnUrl'] = input.cdnUrl ?? null;
-  // Guest access fields
-  if (input.assessmentCode !== undefined) payload['assessmentCode'] = input.assessmentCode ?? null;
-  if (input.guestEnabled !== undefined) payload['guestEnabled'] = Boolean(input.guestEnabled);
-  if (!input.id) {
-    payload['createdAt'] = serverTimestamp();
+
+  if (isNew) {
+    // ── NEW DOCUMENT: write all fields with sensible defaults ────────────
+    payload['description']    = input.description ?? "";
+    payload['instructions']   = input.instructions ?? "";
+    payload['tenantId']       = input.targeting?.tenantIds?.length === 1 ? input.targeting.tenantIds[0] : "ALL";
+    payload['targeting']      = input.targeting ?? DEFAULT_TARGETING;
+    payload['durationMinutes']= Number(input.durationMinutes ?? 0);
+    payload['totalMarks']     = Number(input.totalMarks ?? 0);
+    payload['negativeMarking']= Number(input.negativeMarking ?? 0);
+    payload['passPercentage'] = Number(input.passPercentage ?? 40);
+    payload['status']         = input.status ?? "draft";
+    payload['scheduledStart'] = input.scheduledStart ?? null;
+    payload['scheduledEnd']   = input.scheduledEnd ?? null;
+    payload['proctorConfig']  = input.proctorConfig ?? DEFAULT_PROCTOR_CONFIG;
+    payload['createdAt']      = serverTimestamp();
     if (createdBy) payload['createdBy'] = createdBy;
+  } else {
+    // ── EXISTING DOCUMENT: only write fields explicitly supplied in input ─
+    // Using `'field' in input` correctly distinguishes "not supplied" from
+    // "supplied as undefined". Omitted fields are NEVER written, so they can
+    // never accidentally overwrite existing Firestore values with 0 / null / "draft".
+    if ('description' in input)  payload['description']  = input.description  ?? "";
+    if ('instructions' in input) payload['instructions'] = input.instructions ?? "";
+    if ('targeting' in input && input.targeting !== undefined) {
+      payload['targeting'] = input.targeting;
+      payload['tenantId']  = input.targeting.tenantIds?.length === 1
+        ? input.targeting.tenantIds[0]
+        : "ALL";
+    }
+    if ('durationMinutes' in input && input.durationMinutes !== undefined)
+      payload['durationMinutes'] = Number(input.durationMinutes);
+    if ('totalMarks' in input && input.totalMarks !== undefined)
+      payload['totalMarks'] = Number(input.totalMarks);
+    if ('negativeMarking' in input && input.negativeMarking !== undefined)
+      payload['negativeMarking'] = Number(input.negativeMarking);
+    if ('passPercentage' in input && input.passPercentage !== undefined)
+      payload['passPercentage'] = Number(input.passPercentage);
+    if ('status' in input && input.status !== undefined)
+      payload['status'] = input.status;
+    if ('scheduledStart' in input) payload['scheduledStart'] = input.scheduledStart ?? null;
+    if ('scheduledEnd'   in input) payload['scheduledEnd']   = input.scheduledEnd   ?? null;
+    if ('proctorConfig' in input && input.proctorConfig !== undefined)
+      payload['proctorConfig'] = input.proctorConfig;
   }
+
+  // ── Content/optional fields — conditional for both new and existing ────
+  if (input.questions)                           payload['questions']      = input.questions;
+  if (input.problem)                             payload['problem']        = input.problem;
+  if (input.challenges && input.challenges.length > 0) payload['challenges'] = input.challenges;
+  if (input.prompts)                             payload['prompts']        = input.prompts;
+  if (input.rubric)                              payload['rubric']         = input.rubric;
+  if (input.cdnUrl !== undefined)                payload['cdnUrl']         = input.cdnUrl ?? null;
+  if (input.assessmentCode !== undefined)        payload['assessmentCode'] = input.assessmentCode ?? null;
+  if (input.guestEnabled !== undefined)          payload['guestEnabled']   = Boolean(input.guestEnabled);
+
   await setDoc(doc(getDb(), ASSESSMENTS, id), payload, { merge: true });
   return id;
+}
+
+/**
+ * Surgical CDN-URL write-back.
+ *
+ * ONLY writes `cdnUrl` and `updatedAt` — nothing else.
+ *
+ * Use this after a successful GitHub seed-contents upload so that the
+ * assessment Firestore doc records the new CDN URL WITHOUT touching:
+ *   • status          (must stay draft/active — not reset)
+ *   • durationMinutes (must stay as set by creator)
+ *   • totalMarks      (must stay as set by creator)
+ *   • questions / challenges / targeting / proctorConfig / version
+ *
+ * @param id     Firestore assessment document ID
+ * @param cdnUrl Full raw.githubusercontent.com URL to the published JSON
+ */
+export async function updateAssessmentCdnUrl(id: string, cdnUrl: string): Promise<void> {
+  await setDoc(
+    doc(getDb(), ASSESSMENTS, id),
+    { cdnUrl, updatedAt: serverTimestamp() },
+    { merge: true },
+  );
 }
 
 export async function setAssessmentStatus(id: string, status: AssessmentStatus): Promise<void> {
