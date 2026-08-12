@@ -8,14 +8,22 @@ export interface ResultRow {
   displayName: string;
   tenantId: string;
   cohortId: string;
+  /** Academic graduation year (e.g. "2027") derived from cohortId if not present */
+  year: string;
   department: string;
   rollNumber: string;
   assessmentId: string;
   assessmentTitle: string;
+  /** Normalised type: "mcq" | "coding" | "multisection" | "spoken-english" */
+  assessmentType: string;
+  /** @deprecated use assessmentType */
   type: string;
+  assessmentVersion: number;
   totalScore: number;
   maxScore: number;
   percentage: number;
+  /** true when percentage >= passPercentage (defaults to 40 if not stored) */
+  passed: boolean;
   status: string;
   submittedAt: Date | null;
   violations: number;
@@ -41,6 +49,9 @@ function toDate(value: unknown): Date | null {
  *  - MSA writes:     assessmentName, score, totalMarks, type='multisection'
  *  - Coding writes:  assessmentName / testName, score, totalMarks, type='coding'
  *  - MCQ writes:     assessmentName / assessmentTitle, score, totalMarks, type='mcq'
+ *
+ * Deduplication: if a student submitted the same assessment more than once
+ * (retry or network retry), only the latest submittedAt document is kept.
  */
 export async function listResults(max = 2000): Promise<ResultRow[]> {
   const [studentsSnap, guestsSnap] = await Promise.all([
@@ -53,7 +64,7 @@ export async function listResults(max = 2000): Promise<ResultRow[]> {
     ...guestsSnap.docs.filter((d) => d.ref.path.startsWith("assessmentResults/")),
   ];
 
-  return allDocs.map((d) => {
+  const rows = allDocs.map((d) => {
     const data = d.data() as Record<string, unknown>;
     const proctor = (data['proctorSummary'] ?? {}) as Record<string, unknown>;
 
@@ -66,21 +77,26 @@ export async function listResults(max = 2000): Promise<ResultRow[]> {
       data['assessmentName'] ?? data['testName'] ?? data['assessmentTitle'] ?? data['title'] ?? ""
     );
     // Assessment ID — from doc path: assessmentResults/{assessmentId}/students/{userId}
-    // Use path segment [1] (0-indexed) = assessmentId under assessmentResults.
-    // NOTE: d.ref.parent.parent?.id would give the parent collection doc id which
-    // is correct ONLY when the path is assessmentResults/{id}/students/{uid} (depth=4).
-    // For collectionGroup "students" the path can also be under other parents, so
-    // we parse explicitly to avoid misidentifying tenant IDs as assessment IDs.
     const pathParts = d.ref.path.split("/");
-    // assessmentResults / {assessmentId} / students / {userId}  → segments[1]
     const assessmentIdFromPath = pathParts[0] === "assessmentResults" ? (pathParts[1] ?? "") : "";
     const assessmentId = String(
       data['assessmentId'] ?? data['testID'] ?? assessmentIdFromPath
     );
-    // Type
-    const type = String(data['type'] ?? "");
+    // Type — normalise aliases
+    const rawType = String(data['type'] ?? "");
+    const assessmentType = rawType.replace("multi-section", "multisection");
+    // Version
+    const assessmentVersion = Number(data['assessmentVersion'] ?? 1);
     // Time taken
     const timeTakenSeconds = Number(data['timeTakenSeconds'] ?? data['timeTaken'] ?? 0);
+    // Percentage
+    const pct = Number(data['percentage'] ?? (maxScore > 0 ? (totalScore / maxScore) * 100 : 0));
+    // Pass/fail — use stored passPercentage if available, else 40%
+    const passThreshold = Number(data['passPercentage'] ?? 40);
+    const passed = pct >= passThreshold;
+    // Cohort / year
+    const cohortId = String(data['cohortId'] ?? data['year'] ?? "");
+    const year = String(data['year'] ?? cohortId ?? "");
 
     return {
       path: d.ref.path,
@@ -88,21 +104,42 @@ export async function listResults(max = 2000): Promise<ResultRow[]> {
       email: String(data['email'] ?? ""),
       displayName: String(data['displayName'] ?? data['name'] ?? ""),
       tenantId: String(data['tenantId'] ?? data['college'] ?? ""),
-      cohortId: String(data['cohortId'] ?? data['year'] ?? ""),
+      cohortId,
+      year,
       department: String(data['department'] ?? ""),
       rollNumber: String(data['rollNumber'] ?? ""),
       assessmentId,
       assessmentTitle,
-      type,
+      assessmentType,
+      type: assessmentType, // backward compat alias
+      assessmentVersion,
       totalScore,
       maxScore,
-      percentage: Number(data['percentage'] ?? (maxScore > 0 ? (totalScore / maxScore) * 100 : 0)),
+      percentage: pct,
+      passed,
       status: String(data['status'] ?? "submitted"),
       submittedAt: toDate(data['submittedAt'] ?? data['submittedAtISO']),
       violations: Number(proctor['totalViolations'] ?? data['violationCount'] ?? 0),
       timeTakenSeconds,
     } satisfies ResultRow;
   });
+
+  // Deduplication: for same userId + assessmentId keep the doc with the latest submittedAt
+  const dedupeMap = new Map<string, ResultRow>();
+  for (const row of rows) {
+    const key = `${row.userId}::${row.assessmentId}`;
+    const existing = dedupeMap.get(key);
+    if (!existing) {
+      dedupeMap.set(key, row);
+    } else {
+      // Keep the latest submission
+      const existingTime = existing.submittedAt?.getTime() ?? 0;
+      const rowTime = row.submittedAt?.getTime() ?? 0;
+      if (rowTime > existingTime) dedupeMap.set(key, row);
+    }
+  }
+
+  return Array.from(dedupeMap.values());
 }
 
 /**
@@ -146,12 +183,17 @@ export async function listResultsByTenant(
     const assessmentTitle = String(
       data['assessmentName'] ?? data['testName'] ?? data['assessmentTitle'] ?? ""
     );
-    // Assessment ID — from data field; do NOT fall back to d.ref.parent.parent?.id
-    // because under tenantResults/{tenantId}/results/{id} the parent chain resolves
-    // to tenantId, not the assessment ID. Use the stored field only.
+    // Assessment ID — from data field only (parent path resolves to tenantId here, not assessmentId)
     const assessmentId = String(data['assessmentId'] ?? data['testID'] ?? "");
-    const type = String(data['type'] ?? "");
+    const rawType = String(data['type'] ?? "");
+    const assessmentType = rawType.replace("multi-section", "multisection");
+    const assessmentVersion = Number(data['assessmentVersion'] ?? 1);
     const timeTakenSeconds = Number(data['timeTakenSeconds'] ?? data['timeTaken'] ?? 0);
+    const pct = Number(data['percentage'] ?? (maxScore > 0 ? (totalScore / maxScore) * 100 : 0));
+    const passThreshold = Number(data['passPercentage'] ?? 40);
+    const passed = pct >= passThreshold;
+    const cohortId = String(data['cohortId'] ?? data['year'] ?? "");
+    const year = String(data['year'] ?? cohortId ?? "");
 
     return {
       path: d.ref.path,
@@ -159,15 +201,19 @@ export async function listResultsByTenant(
       email: String(data['email'] ?? ""),
       displayName: String(data['displayName'] ?? data['name'] ?? ""),
       tenantId: String(data['tenantId'] ?? data['college'] ?? tenantId),
-      cohortId: String(data['cohortId'] ?? data['year'] ?? ""),
+      cohortId,
+      year,
       department: String(data['department'] ?? ""),
       rollNumber: String(data['rollNumber'] ?? ""),
       assessmentId,
       assessmentTitle,
-      type,
+      assessmentType,
+      type: assessmentType,
+      assessmentVersion,
       totalScore,
       maxScore,
-      percentage: Number(data['percentage'] ?? (maxScore > 0 ? (totalScore / maxScore) * 100 : 0)),
+      percentage: pct,
+      passed,
       status: String(data['status'] ?? "submitted"),
       submittedAt: toDate(data['submittedAt'] ?? data['submittedAtISO']),
       violations: Number(proctor['totalViolations'] ?? data['violationCount'] ?? 0),
