@@ -368,20 +368,29 @@ function StudentsPage() {
             detail: res.authCreated ? "Account created" : "Profile synced (login existed)",
           });
         } catch (err) {
-          results.push({
-            email: row.email,
-            ok: false,
-            detail: err instanceof Error ? err.message : "Unknown error",
-          });
+          // Surface Firebase Auth error codes for admins (e.g. auth/too-many-requests, auth/operation-not-allowed).
+          const firebaseCode = (err as { code?: string })?.code;
+          const message = err instanceof Error ? err.message : "Unknown error";
+          const detail = firebaseCode ? `[${firebaseCode}] ${message}` : message;
+          results.push({ email: row.email, ok: false, detail });
         }
         setUploadProgress(Math.round(((i + 1) / valid.length) * 100));
+        // Rate-limit guard: Firebase allows ~10 auth creations/sec; 120ms keeps us at ~8/s.
+        if (i < valid.length - 1) {
+          await new Promise((resolve) => setTimeout(resolve, 120));
+        }
       }
       return results;
     },
     onSuccess: (results) => {
       setOutcomes(results);
       const ok = results.filter((r) => r.ok).length;
-      toast.success(`Imported ${ok} of ${results.length} students`);
+      const failed = results.length - ok;
+      if (failed === 0) {
+        toast.success(`Imported all ${ok} students successfully`);
+      } else {
+        toast.warning(`Imported ${ok} of ${results.length} students — ${failed} failed (see table below)`);
+      }
       void qc.invalidateQueries({ queryKey: ["users", "all"] });
     },
     onError: () => toast.error("Import failed"),
