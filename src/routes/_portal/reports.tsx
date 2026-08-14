@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
-import { generateMarksExcel, generateSectionExcel } from "@/services/reports/excelReport";
+import { generateMarksExcel, generateSectionExcel, generateAssessmentWorkbook } from "@/services/reports/excelReport";
 import { generateCsv } from "@/services/reports/csvReport";
 import { generateStudentPdf, generateBulkPdf, generateBulkZip } from "@/services/reports/pdfReport";
-import { normalizeResults } from "@/services/reports/reportNormalizer";
+import { generateAnalysisPdf } from "@/services/reports/analysisReport";
+import { normalizeResults, normalizeReportResult } from "@/services/reports/reportNormalizer";
+import { computeAssessmentGroups } from "@/services/reports/reportAnalytics";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -22,10 +24,12 @@ import {
 } from "recharts";
 import {
   Award,
+  BarChart2,
   ClipboardList,
   Download,
   FileSpreadsheet,
   FileText,
+  Layers,
   Medal,
   Printer,
   Search,
@@ -58,7 +62,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { listResults, listResultsByTenant, type ResultRow } from "@/lib/firestore/results";
+import { listResultsByAssessment, fetchAssessmentRawDocs, listAssessmentIdsWithResults, type ResultRow } from "@/lib/firestore/results";
 import { listProctorEvents } from "@/lib/firestore/proctoring";
 import { listTenants } from "@/lib/firestore/tenants";
 import { listAssessments } from "@/lib/firestore/assessments";
@@ -201,24 +205,35 @@ function ReportsPage() {
   const [tab, setTab] = useState("overview");
   const [isZipping, setIsZipping] = useState(false);
   const [zipProgress, setZipProgress] = useState(0);
+  // Filter-first: assessment must be selected before results are pulled
+  const [pulledAssessmentId, setPulledAssessmentId] = useState<string | null>(null);
+  const [isPulling, setIsPulling] = useState(false);
+  const [pulledRows, setPulledRows] = useState<ResultRow[]>([]);
 
   const tenantsQ = useQuery({ queryKey: ["tenants"], queryFn: listTenants });
   const assessmentsQ = useQuery({ queryKey: ["assessments"], queryFn: listAssessments });
   const coursesQ = useQuery({ queryKey: ["courses"], queryFn: listCourses });
 
-  // Staff: read only their tenant's results (fast, targeted).
-  // Admin: read all results (full scan, with tenant filter client-side).
+  // Unused effectiveTenantForQuery kept for proctor events filter
   const effectiveTenantForQuery = isStaffRole ? (scopedTenantId ?? "") : "";
+  void effectiveTenantForQuery;
+  // Only load results once a specific assessment is pulled (filter-first architecture)
   const resultsQ = useQuery({
-    queryKey: ["results", "reports", effectiveTenantForQuery],
-    queryFn: () =>
-      effectiveTenantForQuery
-        ? listResultsByTenant(effectiveTenantForQuery, { maxResults: 2000 })
-        : listResults(5000),
+    queryKey: ["results", "reports", pulledAssessmentId ?? "none"],
+    enabled: !!pulledAssessmentId,
+    queryFn: () => listResultsByAssessment(pulledAssessmentId!, tenantFilter !== "all" ? tenantFilter : undefined, 2000),
   });
   const eventsQ = useQuery({ queryKey: ["proctor-events", "reports"], queryFn: () => listProctorEvents(5000) });
 
-  const loading = resultsQ.isLoading || assessmentsQ.isLoading || tenantsQ.isLoading;
+  // Assessment options: built from ACTUAL results, not just metadata
+  // Reacts to tenantFilter so staff see only their college's assessments
+  const assessmentOptionsQ = useQuery({
+    queryKey: ["assessmentIdsWithResults", tenantFilter],
+    queryFn: () => listAssessmentIdsWithResults(tenantFilter === "all" ? undefined : tenantFilter),
+    staleTime: 60_000,
+  });
+
+  const loading = isPulling || resultsQ.isLoading || assessmentOptionsQ.isLoading || tenantsQ.isLoading;
 
   const tenants = useMemo(() => {
     const all = tenantsQ.data ?? [];
@@ -234,28 +249,44 @@ function ReportsPage() {
   const effectiveTenant = scopedTenantId || (tenantFilter !== "all" ? tenantFilter : "");
 
   const filteredResults = useMemo(() => {
+    // Use pulled results when an assessment is selected, otherwise empty
+    const baseRows = pulledRows.length > 0 ? pulledRows : (resultsQ.data ?? []);
     const q = search.trim().toLowerCase();
-    return (resultsQ.data ?? []).filter((r) => {
+    return baseRows.filter((r) => {
       if (effectiveTenant && r.tenantId !== effectiveTenant) return false;
       if (yearFilter !== "all" && normaliseYear(r.cohortId) !== yearFilter) return false;
       if (deptFilter !== "all" && r.department !== deptFilter) return false;
-      if (assessmentFilter !== "all" && r.assessmentId !== assessmentFilter) return false;
       if (typeFilter !== "all" && r.type !== typeFilter) return false;
       if (!q) return true;
       return [r.displayName, r.email, r.rollNumber, r.assessmentTitle].filter(Boolean).some((f) => String(f).toLowerCase().includes(q));
     });
-  }, [resultsQ.data, effectiveTenant, yearFilter, deptFilter, assessmentFilter, typeFilter, search]);
+  }, [resultsQ.data, pulledRows, effectiveTenant, yearFilter, deptFilter, typeFilter, search]);
 
-  // Build assessment list from actual result data (IDs match what's in Firestore results)
+  // Assessment options come from real result data, not metadata collection
   const assessmentOptions = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const r of (resultsQ.data ?? [])) {
-      if (r.assessmentId && !map.has(r.assessmentId)) {
-        map.set(r.assessmentId, r.assessmentTitle || r.assessmentId);
-      }
+    const all = assessmentOptionsQ.data ?? [];
+    return all.slice().sort((a, b) => a.title.localeCompare(b.title));
+  }, [assessmentOptionsQ.data]);
+
+  /** Trigger scoped fetch for selected assessment */
+  async function pullReports() {
+    if (!assessmentFilter || assessmentFilter === "all") {
+      toast.error("Please select an assessment first");
+      return;
     }
-    return [...map.entries()].map(([id, title]) => ({ id, title })).sort((a, b) => a.title.localeCompare(b.title));
-  }, [resultsQ.data]);
+    setIsPulling(true);
+    try {
+      const rows = await listResultsByAssessment(assessmentFilter, tenantFilter !== "all" ? tenantFilter : undefined, 2000);
+      setPulledRows(rows);
+      setPulledAssessmentId(assessmentFilter);
+      toast.success(`Loaded ${rows.length} result(s) for this assessment`);
+    } catch (err) {
+      console.error("Pull reports failed", err);
+      toast.error("Failed to load results");
+    } finally {
+      setIsPulling(false);
+    }
+  }
 
   const filteredEvents = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -413,8 +444,47 @@ function ReportsPage() {
   }
 
   function exportSectionAnalysis() {
+    if (normalizedResults.length === 0) { toast.error("No results to export"); return; }
     generateSectionExcel(normalizedResults);
     toast.success("Section analysis Excel ready");
+  }
+
+  async function exportAssessmentWorkbooks() {
+    if (normalizedResults.length === 0) { toast.error("No results to export — pull reports first"); return; }
+    if (!pulledAssessmentId) { toast.error("Select and pull a specific assessment first"); return; }
+    try {
+      toast.info("Fetching full result documents for Workbook export…");
+      // Fetch full raw docs (contains sections, coding, sectionsArray)
+      const rawDocs = await fetchAssessmentRawDocs(pulledAssessmentId, tenantFilter !== "all" ? tenantFilter : undefined);
+      // Re-normalize with raw docs to populate sections and coding submissions
+      const { normalizeReportResult } = await import("@/services/reports/reportNormalizer");
+      const enrichedResults = (pulledRows.length > 0 ? pulledRows : (resultsQ.data ?? [])).map((row) => {
+        const rawDoc = rawDocs.get(row.userId) ?? rawDocs.get(row.email);
+        return normalizeReportResult(row, tenantNameOf, rawDoc ?? undefined, passThreshold);
+      });
+      const groups = computeAssessmentGroups(enrichedResults);
+      if (groups.length === 0) { toast.error("No assessment groups found"); return; }
+      toast.info(`Generating ${groups.length} assessment workbook(s)…`);
+      for (const group of groups) {
+        generateAssessmentWorkbook(group);
+      }
+      toast.success(`${groups.length} assessment workbook(s) downloaded!`);
+    } catch (err) {
+      console.error("Assessment workbook export failed", err);
+      toast.error("Assessment workbook export failed");
+    }
+  }
+
+  async function exportAnalysis() {
+    if (normalizedResults.length === 0) { toast.error("No results to export — pull reports first"); return; }
+    try {
+      toast.info("Generating Analysis PDF report…");
+      generateAnalysisPdf(normalizedResults, getExportFilters());
+      toast.success("Analysis PDF downloaded!");
+    } catch (err) {
+      console.error("Analysis PDF export failed", err);
+      toast.error("Analysis PDF export failed");
+    }
   }
 
   function exportCsv() {
@@ -452,15 +522,27 @@ function ReportsPage() {
     finally { setIsZipping(false); setZipProgress(0); }
   }
 
+  // Cache for raw docs fetched during this session (keyed by userId or email)
+  const [rawDocsCache, setRawDocsCache] = useState<Map<string, Record<string, unknown>>>(new Map());
+
   async function printIndividualReport(r: ResultRow) {
     try {
-      const normalized = normalizeResults([r], tenantNameOf, passThreshold);
-      if (normalized[0]) {
-        toast.info("Generating PDF…");
-        await generateStudentPdf(normalized[0]);
-        toast.success("Individual PDF downloaded!");
+      toast.info("Fetching detailed report data…");
+      // Try to get raw doc from cache first, then fetch if needed
+      let rawDoc = rawDocsCache.get(r.userId) ?? rawDocsCache.get(r.email);
+      if (!rawDoc && pulledAssessmentId) {
+        const freshDocs = await fetchAssessmentRawDocs(pulledAssessmentId, tenantFilter !== "all" ? tenantFilter : undefined);
+        setRawDocsCache(freshDocs);
+        rawDoc = freshDocs.get(r.userId) ?? freshDocs.get(r.email);
       }
-    } catch { toast.error("PDF generation failed"); }
+      const normalized = normalizeReportResult(r, tenantNameOf, rawDoc, passThreshold);
+      toast.info("Generating Individual Analysis PDF…");
+      await generateStudentPdf(normalized);
+      toast.success("Individual Analysis PDF downloaded!");
+    } catch (err) {
+      console.error("Individual PDF failed", err);
+      toast.error("PDF generation failed");
+    }
   }
 
   /* ─────────────────────── RENDER ─────────────────────── */
@@ -480,8 +562,21 @@ function ReportsPage() {
           <Button variant="outline" className="rounded-xl" onClick={exportExcel} disabled={normalizedResults.length === 0}>
             <FileSpreadsheet className="size-4" /> Excel
           </Button>
+          <Button variant="outline" className="rounded-xl" onClick={exportSectionAnalysis} disabled={normalizedResults.length === 0} title="Export section-wise analysis Excel">
+            <Layers className="size-4" /> Sections
+          </Button>
+          <Button variant="outline" className="rounded-xl" onClick={exportAssessmentWorkbooks}
+            disabled={!pulledAssessmentId || normalizedResults.length === 0}
+            title={pulledAssessmentId ? "Export per-assessment summary workbooks" : "Select and pull an assessment first"}>
+            <BarChart2 className="size-4" /> Workbooks
+          </Button>
+          <Button variant="outline" className="rounded-xl" onClick={exportAnalysis}
+            disabled={!pulledAssessmentId || normalizedResults.length === 0}
+            title={pulledAssessmentId ? "Export 5-page analysis PDF" : "Pull an assessment first"}>
+            <FileText className="size-4" /> Analysis PDF
+          </Button>
           <Button variant="outline" className="rounded-xl" onClick={exportPdf} disabled={normalizedResults.length === 0}>
-            <FileText className="size-4" /> PDF
+            <FileText className="size-4" /> PDF (Individual)
           </Button>
           <Button variant="outline" className="rounded-xl" onClick={exportZip} disabled={isZipping || normalizedResults.length === 0}>
             <Download className="size-4" /> {isZipping ? `ZIP ${zipProgress}%` : "ZIP All"}
@@ -519,10 +614,12 @@ function ReportsPage() {
               {DEPARTMENTS.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Select value={assessmentFilter} onValueChange={setAssessmentFilter}>
-            <SelectTrigger className="rounded-xl" aria-label="Filter by assessment"><SelectValue placeholder="All assessments" /></SelectTrigger>
+          <Select value={assessmentFilter} onValueChange={(v) => { setAssessmentFilter(v); setPulledRows([]); setPulledAssessmentId(null); }}>
+            <SelectTrigger className="rounded-xl border-primary/50 font-medium" aria-label="Select assessment">
+              <SelectValue placeholder="⚡ Select an assessment…" />
+            </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All assessments ({(resultsQ.data ?? []).length} results)</SelectItem>
+              <SelectItem value="all">— Choose Assessment —</SelectItem>
               {assessmentOptions.map((a) => <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>)}
             </SelectContent>
           </Select>
@@ -535,25 +632,40 @@ function ReportsPage() {
               <SelectItem value="multisection">Multi-Section</SelectItem>
             </SelectContent>
           </Select>
-          <Select value={courseFilter} onValueChange={setCourseFilter}>
-            <SelectTrigger className="rounded-xl" aria-label="Filter by course"><SelectValue placeholder="All courses" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All courses</SelectItem>
-              {(coursesQ.data ?? []).map((c) => <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}
-            </SelectContent>
-          </Select>
           <div className="flex items-center gap-2">
             <Label htmlFor="pass-threshold" className="whitespace-nowrap text-xs text-muted-foreground">Pass ≥</Label>
             <Input id="pass-threshold" type="number" min={0} max={100} className="rounded-xl" value={passThreshold} onChange={(e) => setPassThreshold(Number(e.target.value) || 0)} aria-label="Pass threshold" />
           </div>
+          <Button
+            className="rounded-xl"
+            onClick={pullReports}
+            disabled={isPulling || !assessmentFilter || assessmentFilter === "all"}
+          >
+            {isPulling ? "Loading…" : "Pull Reports ▶"}
+          </Button>
         </CardContent>
       </Card>
+
+      {/* Empty state — before assessment is pulled */}
+      {filteredResults.length === 0 && !isPulling && !pulledAssessmentId && (
+        <Card className="rounded-2xl border-dashed">
+          <CardContent className="py-16 text-center">
+            <FileSpreadsheet className="mx-auto mb-4 size-12 text-muted-foreground/40" />
+            <p className="text-lg font-semibold">Select an Assessment &amp; Pull Reports</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Choose a College → Year → Assessment from the filters above,<br />
+              then click <strong>Pull Reports ▶</strong> to load student results.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="rounded-xl h-auto flex-wrap">
           <TabsTrigger value="overview" className="rounded-lg"><ClipboardList className="mr-1.5 size-3.5" />Overview</TabsTrigger>
           <TabsTrigger value="rank" className="rounded-lg"><Award className="mr-1.5 size-3.5" />Rank list</TabsTrigger>
           <TabsTrigger value="individual" className="rounded-lg"><FileText className="mr-1.5 size-3.5" />Individual</TabsTrigger>
+          <TabsTrigger value="sections" className="rounded-lg"><Layers className="mr-1.5 size-3.5" />Sections</TabsTrigger>
           {pivot && <TabsTrigger value="pivot" className="rounded-lg"><Table2 className="mr-1.5 size-3.5" />Score matrix</TabsTrigger>}
           <TabsTrigger value="violations" className="rounded-lg"><ShieldAlert className="mr-1.5 size-3.5" />Violations</TabsTrigger>
         </TabsList>
@@ -727,6 +839,7 @@ function ReportsPage() {
                           <TableHead>College</TableHead><TableHead>Year</TableHead><TableHead>Dept</TableHead>
                           <TableHead>Assessment</TableHead><TableHead>Score</TableHead><TableHead>%</TableHead>
                           <TableHead>Submitted</TableHead><TableHead>Violations</TableHead><TableHead>Result</TableHead>
+                          <TableHead>Analysis</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -744,6 +857,17 @@ function ReportsPage() {
                             <TableCell className="whitespace-nowrap">{r.submittedAt?.toLocaleDateString() ?? "—"}</TableCell>
                             <TableCell>{r.violations}</TableCell>
                             <TableCell>{r.percentage >= passThreshold ? <Badge className="rounded-full text-[10px]">Pass</Badge> : <Badge variant="destructive" className="rounded-full text-[10px]">Fail</Badge>}</TableCell>
+                          <TableCell>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="rounded-lg h-7 text-xs gap-1"
+                                onClick={() => printIndividualReport(r)}
+                                title="View individual analysis PDF"
+                              >
+                                <FileText className="size-3" /> View Analysis
+                              </Button>
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -948,6 +1072,87 @@ function ReportsPage() {
                   {filteredResults.length > 500 && (
                     <p className="mt-2 text-center text-xs text-muted-foreground">
                       Showing 500 of {nf.format(filteredResults.length)} — Export CSV for all rows.
+                    </p>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ══ SECTION ANALYSIS ══ */}
+        <TabsContent value="sections" className="mt-4">
+          <Card className="rounded-2xl">
+            <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-2 pb-2">
+              <div>
+                <CardTitle className="text-sm font-semibold">Section-wise Performance Analysis</CardTitle>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  One row per student × section — shows breakdown across all multi-section assessments.
+                </p>
+              </div>
+              <Button size="sm" variant="outline" className="rounded-xl h-7 text-xs"
+                onClick={exportSectionAnalysis} disabled={normalizedResults.length === 0}>
+                <FileSpreadsheet className="mr-1 size-3" /> Excel
+              </Button>
+            </CardHeader>
+            <CardContent className="pt-0 overflow-x-auto">
+              {loading ? (
+                <div className="space-y-2">{[0,1,2,3,4].map((i) => <Skeleton key={i} className="h-10 rounded-xl" />)}</div>
+              ) : normalizedResults.filter(r => r.sections.length > 0).length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  No section data found. Section data is available for multi-section assessments.
+                </p>
+              ) : (
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Student</TableHead>
+                        <TableHead>Roll</TableHead>
+                        <TableHead>College</TableHead>
+                        <TableHead>Dept</TableHead>
+                        <TableHead>Year</TableHead>
+                        <TableHead>Assessment</TableHead>
+                        <TableHead>Section</TableHead>
+                        <TableHead>Score</TableHead>
+                        <TableHead>Max</TableHead>
+                        <TableHead>%</TableHead>
+                        <TableHead>Time</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {normalizedResults
+                        .filter(r => r.sections.length > 0)
+                        .slice(0, 200)
+                        .flatMap(r =>
+                          r.sections.map((sec, si) => (
+                            <TableRow key={`${r.studentId}-${r.testId}-${si}`}>
+                              <TableCell className="font-medium whitespace-nowrap">{r.name}</TableCell>
+                              <TableCell>{r.rollNumber || "—"}</TableCell>
+                              <TableCell className="whitespace-nowrap">{r.college}</TableCell>
+                              <TableCell>{r.department || "—"}</TableCell>
+                              <TableCell>{r.year}</TableCell>
+                              <TableCell className="max-w-40 truncate">{r.testName}</TableCell>
+                              <TableCell className="font-medium">{sec.name}</TableCell>
+                              <TableCell>{sec.score}</TableCell>
+                              <TableCell>{sec.totalMarks}</TableCell>
+                              <TableCell className={sec.status === "Pass" ? "text-green-600 font-semibold" : "text-red-500 font-semibold"}>{sec.percentage}%</TableCell>
+                              <TableCell className="whitespace-nowrap text-xs">{sec.timeTaken}</TableCell>
+                              <TableCell>
+                                {sec.status === "Pass"
+                                  ? <Badge className="rounded-full text-[10px]">Pass</Badge>
+                                  : <Badge variant="destructive" className="rounded-full text-[10px]">Fail</Badge>}
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )
+                      }
+                    </TableBody>
+                  </Table>
+                  {normalizedResults.filter(r => r.sections.length > 0).length > 200 && (
+                    <p className="mt-2 text-center text-xs text-muted-foreground">
+                      Showing first 200 students — Export Excel for full data.
                     </p>
                   )}
                 </>

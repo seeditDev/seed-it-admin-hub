@@ -278,9 +278,10 @@ service cloud.firestore {
 
     // ══════════════════════════════════════════════════════════════════════
     // 8. Assessment Results  (authoritative finalized store)
-    //   assessmentResults/{assessmentId}/students/{uid}
-    //   assessmentResults/{assessmentId}/guests/{guestId}
+    //   assessmentResults/{assessmentId}/{tenantId}/students/{uid}
+    //   assessmentResults/{assessmentId}/{tenantId}/guests/{guestId}
     //
+    // tenantId is the student's college code (e.g. "KGKITE").
     // LIMITATION: Score fields are client-authoritative (no Cloud Function).
     // ══════════════════════════════════════════════════════════════════════
 
@@ -288,44 +289,38 @@ service cloud.firestore {
       allow read:  if isPortal();
       allow write: if isAdmin();
 
-      match /students/{userId} {
-        allow read:   if isPortal() || request.auth.uid == userId;
-        allow create: if isSignedIn() && request.auth.uid == userId;
+      match /{tenantId}/students/{userId} {
+        allow read:   if isPortal() || (isSignedIn() && request.auth.uid == userId);
+        allow create: if isSignedIn()
+          && request.auth.uid == userId
+          && request.resource.data.tenantId == myTenant();
         allow update: if isPortal()
           || (isSignedIn()
               && request.auth.uid == userId
+              && request.resource.data.tenantId == myTenant()
               && resource.data.get('status', '') != 'submitted');
         allow delete: if isAdmin();
       }
 
-      match /guests/{guestId} {
+      match /{tenantId}/guests/{guestId} {
         allow create: if true;
         allow read:   if isPortal() || !isSignedIn();
         allow update, delete: if isPortal();
       }
     }
 
-    // CollectionGroup: students (Admin Reports tab — collectionGroup query)
-    //
-    // IMPORTANT: This wildcard matches ANY subcollection named "students".
-    // We scope writes to authenticated users writing only their own result doc
-    // under assessmentResults/{assessmentId}/students/{uid}.
-    // The specific assessmentResults/{assessmentId}/students/{uid} rule above
-    // (line 268-276) governs per-doc access and takes precedence for single-doc ops.
-    // This collectionGroup rule enables the Admin's cross-assessment query.
+    // CollectionGroup: students
+    // Matches assessmentResults/{assessmentId}/{tenantId}/students/{userId}
     match /{path=**}/students/{userId} {
       allow read: if isAdmin()
         || (isStaff() && resource.data.get('tenantId', '') == myTenant())
         || (isSignedIn() && request.auth.uid == userId);
-      // Writes: only via the specific assessmentResults/{id}/students/{uid} path above.
-      // We do NOT grant create/update here to prevent writing to arbitrary /students/ paths.
       allow create: if isSignedIn()
         && request.auth.uid == userId
-        && path[0] == 'assessmentResults';   // only under assessmentResults/*
+        && request.resource.data.tenantId == myTenant();
       allow update: if isPortal()
         || (isSignedIn()
             && request.auth.uid == userId
-            && path[0] == 'assessmentResults'
             && resource.data.get('status', '') != 'submitted');
       allow delete: if isAdmin();
     }
@@ -339,22 +334,23 @@ service cloud.firestore {
 
     // ══════════════════════════════════════════════════════════════════════
     // 9. Tenant Results — reporting projection
-    //   tenantResults/{tenantId}/results/{resultId}
+    //   tenantResults/{tenantId}/{assessmentId}/{userId}
     //
-    // Student may addDoc ONLY their own row in their own tenant.
+    // NEW structure (v3): assessmentId is the sub-collection name, userId is the doc key.
+    // Student may setDoc ONLY their own row in their own tenant's assessment sub-collection.
     // ══════════════════════════════════════════════════════════════════════
 
     match /tenantResults/{tenantId} {
       allow read:  if isAdmin() || (isStaff() && tenantAllowed(tenantId));
       allow write: if false;
 
-      match /results/{resultId} {
+      match /{assessmentId}/{userId} {
         allow read: if isAdmin()
           || (isStaff() && tenantAllowed(tenantId));
-        allow create: if isSignedIn()
-          && request.resource.data.userId   == request.auth.uid
-          && request.resource.data.tenantId == myTenant();
-        allow update: if isAdmin();
+        allow create, update: if isSignedIn()
+          && request.auth.uid == userId
+          && request.resource.data.tenantId == myTenant()
+          && request.resource.data.assessmentId == assessmentId;
         allow delete: if isAdmin();
       }
     }
