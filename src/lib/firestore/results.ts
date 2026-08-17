@@ -1,4 +1,4 @@
-﻿import { collectionGroup, collection, getDocs, limit, query, where, orderBy } from "firebase/firestore";
+import { collectionGroup, collection, getDocs, limit, query, where, orderBy } from "firebase/firestore";
 import { getDb } from "@/lib/firebase";
 
 export interface ResultRow {
@@ -50,10 +50,10 @@ function rowFromDoc(
     data["assessmentName"] ?? data["testName"] ?? data["assessmentTitle"] ?? data["title"] ?? ""
   );
 
-  // New path: assessmentResults/{assessmentId}/{tenantId}/students/{userId}
+  // Path: assessmentResults/{tenantId}/{assessmentId}/{userId}
   const pathParts = d.ref.path.split("/");
-  const assessmentIdFromPath = pathParts[0] === "assessmentResults" ? (pathParts[1] ?? "") : "";
-  const tenantIdFromPath = pathParts[0] === "assessmentResults" ? (pathParts[2] ?? "") : "";
+  const tenantIdFromPath = pathParts[0] === "assessmentResults" ? (pathParts[1] ?? "") : "";
+  const assessmentIdFromPath = pathParts[0] === "assessmentResults" ? (pathParts[2] ?? "") : "";
 
   const assessmentId = overrideAssessmentId ?? String(data["assessmentId"] ?? data["testID"] ?? assessmentIdFromPath);
   const tenantId = overrideTenantId ?? String(data["tenantId"] ?? data["college"] ?? tenantIdFromPath ?? "");
@@ -95,8 +95,7 @@ function rowFromDoc(
 }
 
 /**
- * Global admin read: all results via collection-group on "students".
- * New path: assessmentResults/{assessmentId}/{tenantId}/students/{userId}
+ * Global admin read: all results via collection-group on "students" or direct queries.
  */
 export async function listResults(max = 2000): Promise<ResultRow[]> {
   const [studentsSnap, guestsSnap] = await Promise.all([
@@ -127,9 +126,7 @@ export async function listResults(max = 2000): Promise<ResultRow[]> {
 }
 
 /**
- * Staff-scoped read from tenantResults/{tenantId}/{assessmentId}/{userId}.
- * For a specific assessment: direct collection read.
- * Without assessmentId: collection-group scan (less efficient).
+ * Staff-scoped read from assessmentResults/{tenantId}/{assessmentId}/{userId}.
  */
 export async function listResultsByTenant(
   tenantId: string,
@@ -138,7 +135,7 @@ export async function listResultsByTenant(
   if (!tenantId) return [];
 
   if (opts?.assessmentId) {
-    const col = collection(getDb(), "tenantResults", tenantId, opts.assessmentId);
+    const col = collection(getDb(), "assessmentResults", tenantId, opts.assessmentId);
     const constraints: Parameters<typeof query>[1][] = [];
     if (opts?.cohortId) constraints.push(where("cohortId", "==", opts.cohortId));
     constraints.push(orderBy("submittedAt", "desc"));
@@ -147,24 +144,20 @@ export async function listResultsByTenant(
     return snap.docs.map((d) => rowFromDoc(d, opts.assessmentId, tenantId));
   }
 
-  // No assessmentId: scan via assessmentResults collection-group filtered by tenantId path segment
+  // Scan via collection-group
   const snap = await getDocs(
     query(collectionGroup(getDb(), "students"), limit(opts?.maxResults ?? 2000))
   );
   return snap.docs
     .filter((d) => {
       const parts = d.ref.path.split("/");
-      return parts[0] === "assessmentResults" && parts[2] === tenantId;
+      return parts[0] === "assessmentResults" && parts[1] === tenantId;
     })
     .map((d) => rowFromDoc(d, undefined, tenantId));
 }
 
 /**
  * Returns distinct {id, title} pairs for assessments that have actual results.
- * Powers the assessment dropdown in the Reports dashboard.
- *
- * tenantId scoped: reads from assessmentResults/**  filtered by path tenantId segment.
- * No tenantId (admin): reads all and aggregates.
  */
 export async function listAssessmentIdsWithResults(
   tenantId?: string,
@@ -177,8 +170,8 @@ export async function listAssessmentIdsWithResults(
   for (const d of snap.docs) {
     if (!d.ref.path.startsWith("assessmentResults/")) continue;
     const parts = d.ref.path.split("/");
-    const aid = parts[1] ?? "";
-    const tid = parts[2] ?? "";
+    const tid = parts[1] ?? "";
+    const aid = parts[2] ?? "";
     // If tenant scoped, filter by tenantId in path
     if (tenantId && tenantId !== "all" && tid !== tenantId) continue;
     if (!aid || seen.has(aid)) continue;
@@ -194,7 +187,7 @@ export async function listAssessmentIdsWithResults(
 
 /**
  * Fetch result rows for one specific assessment.
- * New path: assessmentResults/{assessmentId}/{tenantId}/students/{userId}
+ * Path: assessmentResults/{tenantId}/{assessmentId}/{userId}
  */
 export async function listResultsByAssessment(
   assessmentId: string,
@@ -204,15 +197,15 @@ export async function listResultsByAssessment(
   let allRows: ResultRow[] = [];
 
   if (tenantId && tenantId !== "all") {
-    const col = collection(getDb(), "assessmentResults", assessmentId, tenantId, "students");
+    const col = collection(getDb(), "assessmentResults", tenantId, assessmentId);
     const snap = await getDocs(query(col, limit(max)));
     allRows = snap.docs.map((d) => rowFromDoc(d, assessmentId, tenantId));
   } else {
     const snap = await getDocs(
-      query(collectionGroup(getDb(), "students"), limit(max))
+      query(collectionGroup(getDb(), assessmentId), limit(max))
     );
     allRows = snap.docs
-      .filter((d) => d.ref.path.startsWith(`assessmentResults/${assessmentId}/`))
+      .filter((d) => d.ref.path.startsWith(`assessmentResults/`))
       .map((d) => rowFromDoc(d, assessmentId));
   }
 
@@ -232,7 +225,7 @@ export async function listResultsByAssessment(
 
 /**
  * Full raw docs for Workbook export.
- * New path: assessmentResults/{assessmentId}/{tenantId}/students/{userId}
+ * Path: assessmentResults/{tenantId}/{assessmentId}/{userId}
  */
 export async function fetchAssessmentRawDocs(
   assessmentId: string,
@@ -241,7 +234,7 @@ export async function fetchAssessmentRawDocs(
   const map = new Map<string, Record<string, unknown>>();
 
   if (tenantId && tenantId !== "all") {
-    const col = collection(getDb(), "assessmentResults", assessmentId, tenantId, "students");
+    const col = collection(getDb(), "assessmentResults", tenantId, assessmentId);
     const snap = await getDocs(col);
     for (const d of snap.docs) {
       const data = d.data() as Record<string, unknown>;
@@ -251,9 +244,9 @@ export async function fetchAssessmentRawDocs(
       if (email && email !== userId) map.set(email, data);
     }
   } else {
-    const snap = await getDocs(query(collectionGroup(getDb(), "students"), limit(5000)));
+    const snap = await getDocs(query(collectionGroup(getDb(), assessmentId), limit(5000)));
     for (const d of snap.docs) {
-      if (!d.ref.path.startsWith(`assessmentResults/${assessmentId}/`)) continue;
+      if (!d.ref.path.startsWith(`assessmentResults/`)) continue;
       const data = d.data() as Record<string, unknown>;
       const userId = String(data["userId"] ?? data["email"] ?? d.id);
       map.set(userId, data);
@@ -263,3 +256,4 @@ export async function fetchAssessmentRawDocs(
   }
   return map;
 }
+
