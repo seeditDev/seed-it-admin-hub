@@ -312,9 +312,12 @@ export function generateAssessmentWorkbook(group: AssessmentGroup): void {
   void lastRow; // suppress unused
 
   // ── Test Results Sheet ────────────────────────────────────────────────────────
-  // Detect coding questions
+  // Derive coding section total marks from the section definition (same as legacy)
+  const codingSecDef = secs.find((s) => /coding/i.test(s.name || ""));
+  const codingSecTotalMarks = codingSecDef?.totalMarks || group.results[0]?.totalMarks || 40;
+
+  // Detect all coding questions across all results in this group
   const allCodingQs = new Map<string, { qNum: number; title: string; maxMarks: number }>();
-  const codingSecTotalMarks = 40;
   for (const r of results) {
     const raw = extractCodingSubmissions(r as unknown as Record<string, unknown>);
     const normalized = normalizeCodingSubmissions(raw, codingSecTotalMarks);
@@ -347,10 +350,11 @@ export function generateAssessmentWorkbook(group: AssessmentGroup): void {
     }
   }
 
+  // ── Coding column headers: "Q1 - Problem Title" format (matches legacy exactly)
   const codH1: string[] = [];
   const codH2: string[] = [];
   for (const cq of codingQList) {
-    codH1.push(`${cq.title}`, "", "", "");
+    codH1.push(`Q${cq.qNum} - ${cq.title}`, "", "", "");
     codH2.push("Marks Obtained", "Total Marks", "Accuracy (%)", "Time Taken");
   }
 
@@ -401,7 +405,9 @@ export function generateAssessmentWorkbook(group: AssessmentGroup): void {
 
     const codVals: unknown[] = [];
     for (const cq of codingQList) {
-      const cSub = r.codingSubmissions.find((c) => c.questionNumber === cq.qNum);
+      const cSub = r.codingSubmissions.find((c) =>
+        c.questionNumber === cq.qNum || (c.problemTitle && c.problemTitle === cq.title)
+      );
       if (cSub?.attempted) {
         codVals.push(cSub.score, cSub.maxMarks, `${cSub.accuracy}%`, cSub.timeTaken);
       } else {
@@ -442,7 +448,9 @@ export function generateAssessmentWorkbook(group: AssessmentGroup): void {
   merges.push({ s: { r: 0, c: ci }, e: { r: 0, c: ci + 4 } }); ci += 5;
   merges.push({ s: { r: 0, c: ci }, e: { r: 0, c: ci + 1 } });
   ws["!merges"] = merges;
-  ws["!cols"] = row2Names.map((_, c) => ({ wch: Math.max(12, ...dataAoa.slice(1).map((row) => String((row as unknown[])[c] ?? "").length + 2)) }));
+  // Column widths: use .v (cell value) for styled cell objects
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ws["!cols"] = row2Names.map((_, c) => ({ wch: Math.max(12, ...dataAoa.slice(1).map((row) => String(((row as any[])[c] as any)?.v ?? (row as any[])[c] ?? "").length + 2)) }));
 
   const cleanTest   = safeFilename(group.testName);
   const cleanCol    = safeFilename([...group.colleges].join("_") || "ALL");
