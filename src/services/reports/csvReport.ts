@@ -1,8 +1,9 @@
 /**
- * ─── SEED-IT CSV Report Engine ────────────────────────────────────────────────
+ * ─── SEED-IT CSV Report Engine (Marks Report) ────────────────────────────────
  *
  * Generates a UTF-8 BOM prefixed CSV from normalized results.
- * Same data model as Excel — no separate formula logic.
+ * S.No is included as the first column.
+ * Filename format: CollegeName-AssessmentName-Date.csv
  */
 
 import type { NormalizedResult } from "./reportTypes";
@@ -19,7 +20,7 @@ function escCsv(v: unknown): string {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-function buildCsvRows(results: NormalizedResult[]): { headers: string[]; rows: string[][] } {
+export function buildCsvRows(results: NormalizedResult[]): { headers: string[]; rows: string[][] } {
   if (!results.length) return { headers: [], rows: [] };
 
   // Discover all section names and coding Q labels across all results
@@ -35,6 +36,7 @@ function buildCsvRows(results: NormalizedResult[]): { headers: string[]; rows: s
   const isSpoken = results.some((r) => /spoken_english|speech|sea/i.test(r.assessmentType));
 
   const headers: string[] = [
+    "S.No",
     "Candidate ID / Roll No",
     "Student Name",
     "Email",
@@ -78,8 +80,9 @@ function buildCsvRows(results: NormalizedResult[]): { headers: string[]; rows: s
 
   headers.push("Submitted Date");
 
-  const rows: string[][] = results.map((r) => {
+  const rows: string[][] = results.map((r, index) => {
     const row: string[] = [
+      String(index + 1),
       r.rollNumber,
       r.name,
       r.email,
@@ -142,33 +145,34 @@ function buildCsvRows(results: NormalizedResult[]): { headers: string[]; rows: s
   return { headers, rows };
 }
 
+export function buildCsvContent(results: NormalizedResult[]): string {
+  const { headers, rows } = buildCsvRows(results);
+  const lines = [headers, ...rows].map((r) => r.map(escCsv).join(","));
+  return "\uFEFF" + lines.join("\r\n"); // UTF-8 BOM
+}
+
+export function buildMarksReportFilename(
+  filters: { testName?: string; college?: string; year?: string },
+  results: NormalizedResult[],
+): string {
+  const college  = safeFilename(filters.college  || results[0]?.college  || "College");
+  const testName = safeFilename(filters.testName || results[0]?.testName || "Assessment");
+  const dateStr  = new Date().toISOString().slice(0, 10);
+  return `${college}-${testName}-Marks_Report-${dateStr}.csv`;
+}
+
 export function generateCsv(
   results: NormalizedResult[],
   filters: { testName?: string; college?: string; year?: string } = {},
 ): void {
   if (!results.length) return;
 
-  const { headers, rows } = buildCsvRows(results);
-  const lines = [headers, ...rows].map((r) => r.map(escCsv).join(","));
-  const csv = "\uFEFF" + lines.join("\r\n"); // UTF-8 BOM for Excel compatibility
-
+  const csv = buildCsvContent(results);
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
-  const a = Object.assign(document.createElement("a"), { href: url, download: buildFilename(filters, results, "csv") });
+  const a = Object.assign(document.createElement("a"), { href: url, download: buildMarksReportFilename(filters, results) });
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
-}
-
-function buildFilename(
-  filters: { testName?: string; college?: string; year?: string },
-  results: NormalizedResult[],
-  ext: string,
-): string {
-  const testName = safeFilename(filters.testName || results[0]?.testName || "All_Assessments");
-  const college  = safeFilename(filters.college  || results[0]?.college  || "ALL");
-  const year     = safeFilename(filters.year     || formatYear(results[0]?.year || "All"));
-  const dateStr  = new Date().toISOString().slice(0, 10);
-  return `SEED-${testName}-${college}-${year}-${dateStr}.${ext}`;
 }

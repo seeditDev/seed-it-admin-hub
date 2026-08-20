@@ -3,8 +3,15 @@ import { generateMarksExcel, generateSectionExcel, generateAssessmentWorkbook } 
 import { generateCsv } from "@/services/reports/csvReport";
 import { generateStudentPdf, generateBulkPdf, generateBulkZip } from "@/services/reports/pdfReport";
 import { generateAnalysisPdf } from "@/services/reports/analysisReport";
-import { normalizeResults, normalizeReportResult } from "@/services/reports/reportNormalizer";
+import {
+  normalizeResults,
+  normalizeReportResult,
+  formatDateDisplay,
+  formatTime,
+  formatHrMinSec,
+} from "@/services/reports/reportNormalizer";
 import { computeAssessmentGroups } from "@/services/reports/reportAnalytics";
+import type { NormalizedResult, NormalizedSection, NormalizedCodingSubmission } from "@/services/reports/reportTypes";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -23,30 +30,52 @@ import {
   YAxis,
 } from "recharts";
 import {
+  AlertTriangle,
   Award,
   BarChart2,
+  BookOpen,
+  Calendar,
+  CheckCircle,
+  CheckCircle2,
   ClipboardList,
+  Clock,
   Download,
+  Eye,
   FileSpreadsheet,
   FileText,
+  Filter,
+  GraduationCap,
   Layers,
   Medal,
   Printer,
+  RotateCcw,
+  School,
   Search,
   ShieldAlert,
   Table2,
   Target,
   TrendingDown,
   TrendingUp,
+  User,
+  Users,
+  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -64,7 +93,7 @@ import {
 } from "@/components/ui/table";
 import { listResultsByAssessment, fetchAssessmentRawDocs, listAssessmentIdsWithResults, type ResultRow } from "@/lib/firestore/results";
 import { listProctorEvents } from "@/lib/firestore/proctoring";
-import { listTenants } from "@/lib/firestore/tenants";
+import { listTenants, listCohorts } from "@/lib/firestore/tenants";
 import { listAssessments } from "@/lib/firestore/assessments";
 import { listCourses } from "@/lib/firestore/courses";
 import { ALLOWED_YEARS, DEPARTMENTS, normaliseYear, type ProctorEventRow } from "@/types/seedit";
@@ -195,16 +224,17 @@ function ReportsPage() {
   const isStaffRole = role === "staff";
 
   const [tenantFilter, setTenantFilter] = useState(scopedTenantId || "all");
-  const [yearFilter, setYearFilter] = useState("all");
+  const [cohortFilter, setCohortFilter] = useState("all");
   const [deptFilter, setDeptFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "passed" | "failed" | "flagged">("all");
   const [assessmentFilter, setAssessmentFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
-  const [courseFilter, setCourseFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [passThreshold, setPassThreshold] = useState(40);
   const [tab, setTab] = useState("overview");
   const [isZipping, setIsZipping] = useState(false);
   const [zipProgress, setZipProgress] = useState(0);
+
   // Filter-first: assessment must be selected before results are pulled
   const [pulledAssessmentId, setPulledAssessmentId] = useState<string | null>(null);
   const [isPulling, setIsPulling] = useState(false);
@@ -214,59 +244,167 @@ function ReportsPage() {
   const assessmentsQ = useQuery({ queryKey: ["assessments"], queryFn: listAssessments });
   const coursesQ = useQuery({ queryKey: ["courses"], queryFn: listCourses });
 
-  // Unused effectiveTenantForQuery kept for proctor events filter
-  const effectiveTenantForQuery = isStaffRole ? (scopedTenantId ?? "") : "";
-  void effectiveTenantForQuery;
+  // Effective tenant for filtering
+  const effectiveTenant = scopedTenantId || (tenantFilter !== "all" ? tenantFilter : "");
+
+  // Cohorts query for the selected tenant (/tenants/{tenantId}/cohorts)
+  const cohortsQ = useQuery({
+    queryKey: ["cohorts", effectiveTenant],
+    enabled: !!effectiveTenant,
+    queryFn: () => listCohorts(effectiveTenant),
+  });
+
+  const availableCohorts = useMemo(() => {
+    return cohortsQ.data ?? [];
+  }, [cohortsQ.data]);
+
+  const selectedCohort = useMemo(() => {
+    if (!cohortFilter || cohortFilter === "all") return null;
+    return availableCohorts.find((c) => c.id === cohortFilter || c.year === cohortFilter) ?? null;
+  }, [availableCohorts, cohortFilter]);
+
   // Only load results once a specific assessment is pulled (filter-first architecture)
   const resultsQ = useQuery({
-    queryKey: ["results", "reports", pulledAssessmentId ?? "none"],
+    queryKey: ["results", "reports", effectiveTenant || "all", pulledAssessmentId ?? "none"],
     enabled: !!pulledAssessmentId,
-    queryFn: () => listResultsByAssessment(pulledAssessmentId!, tenantFilter !== "all" ? tenantFilter : undefined, 2000),
+    queryFn: () => listResultsByAssessment(pulledAssessmentId!, effectiveTenant || undefined, 2000),
   });
   const eventsQ = useQuery({ queryKey: ["proctor-events", "reports"], queryFn: () => listProctorEvents(5000) });
 
-  // Assessment options: built from ACTUAL results, not just metadata
-  // Reacts to tenantFilter so staff see only their college's assessments
+  // Assessment options: built from ACTUAL results
   const assessmentOptionsQ = useQuery({
-    queryKey: ["assessmentIdsWithResults", tenantFilter],
-    queryFn: () => listAssessmentIdsWithResults(tenantFilter === "all" ? undefined : tenantFilter),
+    queryKey: ["assessmentIdsWithResults", effectiveTenant],
+    queryFn: () => listAssessmentIdsWithResults(effectiveTenant || undefined),
     staleTime: 60_000,
   });
 
-  const loading = isPulling || resultsQ.isLoading || assessmentOptionsQ.isLoading || tenantsQ.isLoading;
+  const loading = isPulling || resultsQ.isLoading || assessmentOptionsQ.isLoading || tenantsQ.isLoading || cohortsQ.isLoading;
 
   const tenants = useMemo(() => {
     const all = tenantsQ.data ?? [];
     return scopedTenantId ? all.filter((t) => t.id === scopedTenantId) : all;
   }, [tenantsQ.data, scopedTenantId]);
 
-  const assessments = useMemo(() => {
-    const all = assessmentsQ.data ?? [];
-    return scopedTenantId ? all.filter((a) => a.tenantId === scopedTenantId || a.tenantId === "ALL") : all;
-  }, [assessmentsQ.data, scopedTenantId]);
-
   const tenantNameOf = useMemo(() => new Map(tenants.map((t) => [t.id, t.name] as const)), [tenants]);
-  const effectiveTenant = scopedTenantId || (tenantFilter !== "all" ? tenantFilter : "");
+
+  // Resolving allowedModules strictly from /tenants/{tenantId}/cohorts/{cohortId}
+  const resolvedAssessmentOptions = useMemo(() => {
+    const allAssessments = assessmentsQ.data ?? [];
+    const allCourses = coursesQ.data ?? [];
+    const resultAssessmentIds = assessmentOptionsQ.data ?? [];
+
+    const map = new Map<string, { id: string; title: string; type: string }>();
+
+    // 1. Gather allowed module keys strictly from the tenant's cohorts (/tenants/{tenantId}/cohorts/{cohortId}/allowedModules)
+    let allowedKeys: string[] = [];
+    if (selectedCohort) {
+      allowedKeys = Array.isArray(selectedCohort.allowedModules) ? selectedCohort.allowedModules : [];
+    } else if (availableCohorts.length > 0) {
+      const set = new Set<string>();
+      for (const c of availableCohorts) {
+        if (Array.isArray(c.allowedModules)) {
+          c.allowedModules.forEach((k) => k && set.add(k));
+        }
+      }
+      allowedKeys = Array.from(set);
+    }
+
+    if (allowedKeys.length > 0) {
+      for (const modKey of allowedKeys) {
+        if (!modKey) continue;
+        const parts = modKey.split("::");
+        const testOrAsmId: string = (parts.length === 3 ? parts[2] : modKey) || modKey;
+        if (!testOrAsmId) continue;
+
+        // A. Match against assessments collection
+        const asm = allAssessments.find((a) => a.id === testOrAsmId || a.id === modKey);
+        if (asm) {
+          map.set(asm.id, { id: asm.id, title: asm.title, type: asm.type || "mcq" });
+          continue;
+        }
+
+        // B. Match against courses -> series -> tests
+        let foundInCourse = false;
+        for (const c of allCourses) {
+          for (const s of (c as any).seriesList || []) {
+            for (const t of (s as any).tests || []) {
+              if (t.id === testOrAsmId || `${c.id}::${s.id}::${t.id}` === modKey) {
+                map.set(t.assessmentId || t.id, {
+                  id: t.assessmentId || t.id,
+                  title: t.title || t.name || testOrAsmId,
+                  type: t.type || "mcq",
+                });
+                foundInCourse = true;
+                break;
+              }
+            }
+            if (foundInCourse) break;
+          }
+          if (foundInCourse) break;
+        }
+        if (foundInCourse) continue;
+
+        // C. Match against actual results
+        const fromResults = resultAssessmentIds.find((r) => r.id === testOrAsmId || r.id === modKey);
+        if (fromResults) {
+          map.set(fromResults.id, { id: fromResults.id, title: fromResults.title, type: "assessment" });
+        } else {
+          // Format clean title from slug/ID
+          const cleanTitle = testOrAsmId.replace(/[-_]/g, " ").replace(/\b\w/g, (ch) => ch.toUpperCase());
+          map.set(testOrAsmId, { id: testOrAsmId, title: cleanTitle, type: "assessment" });
+        }
+      }
+    } else {
+      // 2. Fallback: if no cohort allowedModules configured, populate from assessmentResults
+      for (const resAsm of resultAssessmentIds) {
+        if (!map.has(resAsm.id)) {
+          map.set(resAsm.id, { id: resAsm.id, title: resAsm.title, type: "assessment" });
+        }
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => a.title.localeCompare(b.title));
+  }, [selectedCohort, availableCohorts, assessmentsQ.data, coursesQ.data, assessmentOptionsQ.data]);
+
+  // Available departments from selected cohort or result rows
+  const availableDepartments = useMemo(() => {
+    const depts = new Set<string>();
+    if (selectedCohort && Array.isArray(selectedCohort.departments)) {
+      selectedCohort.departments.forEach((d) => d && depts.add(d));
+    }
+    const baseRows = pulledRows.length > 0 ? pulledRows : (resultsQ.data ?? []);
+    baseRows.forEach((r) => {
+      if (r.department) depts.add(r.department);
+    });
+    if (depts.size === 0) {
+      DEPARTMENTS.forEach((d) => depts.add(d));
+    }
+    return Array.from(depts).sort();
+  }, [selectedCohort, pulledRows, resultsQ.data]);
 
   const filteredResults = useMemo(() => {
-    // Use pulled results when an assessment is selected, otherwise empty
     const baseRows = pulledRows.length > 0 ? pulledRows : (resultsQ.data ?? []);
     const q = search.trim().toLowerCase();
     return baseRows.filter((r) => {
       if (effectiveTenant && r.tenantId !== effectiveTenant) return false;
-      if (yearFilter !== "all" && normaliseYear(r.cohortId) !== yearFilter) return false;
+      if (
+        cohortFilter !== "all" &&
+        normaliseYear(r.year || r.cohortId) !== normaliseYear(cohortFilter) &&
+        r.cohortId !== cohortFilter &&
+        r.year !== cohortFilter
+      )
+        return false;
       if (deptFilter !== "all" && r.department !== deptFilter) return false;
-      if (typeFilter !== "all" && r.type !== typeFilter) return false;
+      if (statusFilter === "passed" && !r.passed) return false;
+      if (statusFilter === "failed" && r.passed) return false;
+      if (statusFilter === "flagged" && r.violations === 0) return false;
+      if (typeFilter !== "all" && r.type !== typeFilter && r.assessmentType !== typeFilter) return false;
       if (!q) return true;
-      return [r.displayName, r.email, r.rollNumber, r.assessmentTitle].filter(Boolean).some((f) => String(f).toLowerCase().includes(q));
+      return [r.displayName, r.email, r.rollNumber, r.department, r.assessmentTitle]
+        .filter(Boolean)
+        .some((f) => String(f).toLowerCase().includes(q));
     });
-  }, [resultsQ.data, pulledRows, effectiveTenant, yearFilter, deptFilter, typeFilter, search]);
-
-  // Assessment options come from real result data, not metadata collection
-  const assessmentOptions = useMemo(() => {
-    const all = assessmentOptionsQ.data ?? [];
-    return all.slice().sort((a, b) => a.title.localeCompare(b.title));
-  }, [assessmentOptionsQ.data]);
+  }, [resultsQ.data, pulledRows, effectiveTenant, cohortFilter, deptFilter, statusFilter, typeFilter, search]);
 
   /** Trigger scoped fetch for selected assessment */
   async function pullReports() {
@@ -276,7 +414,7 @@ function ReportsPage() {
     }
     setIsPulling(true);
     try {
-      const rows = await listResultsByAssessment(assessmentFilter, tenantFilter !== "all" ? tenantFilter : undefined, 2000);
+      const rows = await listResultsByAssessment(assessmentFilter, effectiveTenant || undefined, 2000);
       setPulledRows(rows);
       setPulledAssessmentId(assessmentFilter);
       toast.success(`Loaded ${rows.length} result(s) for this assessment`);
@@ -292,13 +430,13 @@ function ReportsPage() {
     const q = search.trim().toLowerCase();
     return (eventsQ.data ?? []).filter((e) => {
       if (effectiveTenant && e.tenantId !== effectiveTenant) return false;
-      if (yearFilter !== "all" && normaliseYear(e.year) !== yearFilter) return false;
+      if (cohortFilter !== "all" && normaliseYear(e.year) !== normaliseYear(cohortFilter)) return false;
       if (deptFilter !== "all" && e.department !== deptFilter) return false;
       if (assessmentFilter !== "all" && e.assessmentId !== assessmentFilter) return false;
       if (!q) return true;
       return [e.displayName, e.email].filter(Boolean).some((f) => String(f).toLowerCase().includes(q));
     });
-  }, [eventsQ.data, effectiveTenant, yearFilter, deptFilter, assessmentFilter, search]);
+  }, [eventsQ.data, effectiveTenant, cohortFilter, deptFilter, assessmentFilter, search]);
 
   /* ── KPIs ── */
   const kpis = useMemo(() => {
@@ -395,9 +533,44 @@ function ReportsPage() {
   }, [filteredResults, assessmentFilter, tenantNameOf]);
 
   /* ── Export helpers ── */
-  const detailHeaders = ["#", "Name", "Email", "Roll", "College", "Year", "Dept", "Assessment", "Score", "Max", "%", "Result", "Violations", "Submitted"];
+  const detailHeaders = [
+    "#",
+    "Name",
+    "Email",
+    "Roll",
+    "College",
+    "Year",
+    "Dept",
+    "Assessment",
+    "Score",
+    "Max",
+    "%",
+    "Result",
+    "Start Time",
+    "Submitted At",
+    "Duration",
+    "Violations",
+  ];
+
   function detailRow(r: ResultRow & { rank?: number }) {
-    return [r.rank ?? "", r.displayName || r.email, r.email, r.rollNumber || "—", tenantNameOf.get(r.tenantId) ?? r.tenantId, normaliseYear(r.cohortId) ?? "—", r.department || "—", r.assessmentTitle, r.totalScore, r.maxScore, pf.format(r.percentage), r.percentage >= passThreshold ? "Pass" : "Fail", r.violations, r.submittedAt?.toLocaleDateString() ?? "—"];
+    return [
+      r.rank ?? "",
+      r.displayName || r.email,
+      r.email,
+      r.rollNumber || "—",
+      tenantNameOf.get(r.tenantId) ?? r.tenantId,
+      normaliseYear(r.year || r.cohortId) ?? "—",
+      r.department || "—",
+      r.assessmentTitle,
+      r.totalScore,
+      r.maxScore,
+      pf.format(r.percentage),
+      r.percentage >= passThreshold ? "Pass" : "Fail",
+      r.startedAt ? `${formatDateDisplay(r.startedAt)} ${formatTime(r.startedAt)}` : "—",
+      r.submittedAt ? `${formatDateDisplay(r.submittedAt)} ${formatTime(r.submittedAt)}` : "—",
+      formatHrMinSec(r.timeTakenSeconds),
+      r.violations,
+    ];
   }
 
   /** Normalized result set for the report engine (summary-level, no raw doc). */
@@ -410,11 +583,11 @@ function ReportsPage() {
 
   function getExportFilters(): { testName?: string; college?: string; year?: string } {
     const f: { testName?: string; college?: string; year?: string } = {};
-    const aTitle = assessmentOptions.find(a => a.id === assessmentFilter)?.title;
+    const aTitle = resolvedAssessmentOptions.find((a) => a.id === assessmentFilter)?.title;
     if (assessmentFilter !== "all" && aTitle) f.testName = aTitle;
-    const cName = tenantNameOf.get(tenantFilter);
-    if (tenantFilter !== "all" && cName) f.college = cName;
-    if (yearFilter !== "all") f.year = yearFilter;
+    const cName = tenantNameOf.get(effectiveTenant);
+    if (effectiveTenant && cName) f.college = cName;
+    if (cohortFilter !== "all") f.year = selectedCohort?.label || selectedCohort?.year || cohortFilter;
     return f;
   }
 
@@ -440,23 +613,15 @@ function ReportsPage() {
         generateMarksExcel(normalizedResults, getExportFilters());
         toast.success("Styled Excel report ready");
       }
-    } catch { toast.error("Excel export failed"); }
+    } catch { toast.error("Export failed"); }
   }
 
-  function exportSectionAnalysis() {
-    if (normalizedResults.length === 0) { toast.error("No results to export"); return; }
-    generateSectionExcel(normalizedResults);
-    toast.success("Section analysis Excel ready");
-  }
-
-  async function exportAssessmentWorkbooks() {
+  async function exportAssessmentReportWorkbook() {
     if (normalizedResults.length === 0) { toast.error("No results to export — pull reports first"); return; }
     if (!pulledAssessmentId) { toast.error("Select and pull a specific assessment first"); return; }
     try {
-      toast.info("Fetching full result documents for Workbook export…");
-      // Fetch full raw docs (contains sections, coding, sectionsArray)
-      const rawDocs = await fetchAssessmentRawDocs(pulledAssessmentId, tenantFilter !== "all" ? tenantFilter : undefined);
-      // Re-normalize with raw docs to populate sections and coding submissions
+      toast.info("Preparing Assessment Report (Excel Workbook)…");
+      const rawDocs = await fetchAssessmentRawDocs(pulledAssessmentId, effectiveTenant || undefined);
       const { normalizeReportResult } = await import("@/services/reports/reportNormalizer");
       const enrichedResults = (pulledRows.length > 0 ? pulledRows : (resultsQ.data ?? [])).map((row) => {
         const rawDoc = rawDocs.get(row.userId) ?? rawDocs.get(row.email);
@@ -464,185 +629,364 @@ function ReportsPage() {
       });
       const groups = computeAssessmentGroups(enrichedResults);
       if (groups.length === 0) { toast.error("No assessment groups found"); return; }
-      toast.info(`Generating ${groups.length} assessment workbook(s)…`);
       for (const group of groups) {
         generateAssessmentWorkbook(group);
       }
-      toast.success(`${groups.length} assessment workbook(s) downloaded!`);
+      toast.success("Assessment Report (Excel) downloaded!");
     } catch (err) {
       console.error("Assessment workbook export failed", err);
       toast.error("Assessment workbook export failed");
     }
   }
 
-  async function exportAnalysis() {
+  async function exportInstitutionalAnalysisPdf() {
     if (normalizedResults.length === 0) { toast.error("No results to export — pull reports first"); return; }
     try {
-      toast.info("Generating Analysis PDF report…");
+      toast.info("Generating Institutional Analysis (PDF)…");
       generateAnalysisPdf(normalizedResults, getExportFilters());
-      toast.success("Analysis PDF downloaded!");
+      toast.success("Institutional Analysis (PDF) downloaded!");
     } catch (err) {
       console.error("Analysis PDF export failed", err);
       toast.error("Analysis PDF export failed");
     }
   }
 
-  function exportCsv() {
+  function exportMarksReportCsv() {
     if (tab === "violations") {
       downloadCsv(`seed-it-violations-${Date.now()}.csv`, ["Timestamp", "Student", "Email", "Assessment", "Type", "Severity", "Detail"], filteredEvents.map((e) => [e.at?.toISOString() ?? "", e.displayName, e.email, e.assessmentTitle, e.type, e.severity, e.detail]));
-      toast.success("CSV downloaded");
+      toast.success("Violations CSV downloaded");
     } else if (tab === "pivot" && pivot) {
       const hdrs = ["Name", "Email", "Roll", "College", "Dept", ...pivot.asmCols.map(([, t]) => t + " (%)")];
       downloadCsv(`seed-it-matrix-${Date.now()}.csv`, hdrs, pivot.students.map((s) => [s.name, s.email, s.roll, s.college, s.dept, ...pivot.asmCols.map(([id]) => { const sc = s.scores.get(id); return sc ? pf.format(sc.pct) : ""; })]));
-      toast.success("CSV downloaded");
+      toast.success("Matrix CSV downloaded");
     } else {
       generateCsv(normalizedResults, getExportFilters());
-      toast.success("CSV downloaded");
+      toast.success("Marks Report (CSV) downloaded!");
     }
   }
 
-  async function exportPdf() {
-    if (normalizedResults.length === 0) { toast.error("No results to export"); return; }
-    try {
-      toast.info("Generating PDF report…");
-      await generateBulkPdf(normalizedResults, getExportFilters());
-      toast.success("PDF report downloaded!");
-    } catch { toast.error("PDF export failed"); }
-  }
-
-  async function exportZip() {
+  async function exportCompleteZip() {
     if (normalizedResults.length === 0) { toast.error("No results to export"); return; }
     setIsZipping(true);
     setZipProgress(0);
     try {
-      toast.info(`Generating ZIP for ${normalizedResults.length} students…`);
+      toast.info(`Generating complete reports ZIP for ${normalizedResults.length} students…`);
       await generateBulkZip(normalizedResults, getExportFilters(), (pct) => setZipProgress(pct));
-      toast.success("ZIP archive downloaded!");
-    } catch { toast.error("ZIP export failed"); }
-    finally { setIsZipping(false); setZipProgress(0); }
+      toast.success("Complete Reports Bundle ZIP downloaded!");
+    } catch (err) {
+      console.error("ZIP export failed", err);
+      toast.error("ZIP export failed");
+    } finally {
+      setIsZipping(false);
+      setZipProgress(0);
+    }
   }
 
   // Cache for raw docs fetched during this session (keyed by userId or email)
   const [rawDocsCache, setRawDocsCache] = useState<Map<string, Record<string, unknown>>>(new Map());
+  const [selectedStudentResult, setSelectedStudentResult] = useState<NormalizedResult | null>(null);
+  const [isAnalysisModalOpen, setIsAnalysisModalOpen] = useState(false);
+  const [isLoadingStudentAnalysis, setIsLoadingStudentAnalysis] = useState(false);
 
-  async function printIndividualReport(r: ResultRow) {
+  async function openStudentAnalysis(r: ResultRow) {
     try {
-      toast.info("Fetching detailed report data…");
-      // Try to get raw doc from cache first, then fetch if needed
+      setIsLoadingStudentAnalysis(true);
       let rawDoc = rawDocsCache.get(r.userId) ?? rawDocsCache.get(r.email);
       if (!rawDoc && pulledAssessmentId) {
-        const freshDocs = await fetchAssessmentRawDocs(pulledAssessmentId, tenantFilter !== "all" ? tenantFilter : undefined);
+        const freshDocs = await fetchAssessmentRawDocs(pulledAssessmentId, effectiveTenant || undefined);
         setRawDocsCache(freshDocs);
         rawDoc = freshDocs.get(r.userId) ?? freshDocs.get(r.email);
       }
       const normalized = normalizeReportResult(r, tenantNameOf, rawDoc, passThreshold);
-      toast.info("Generating Individual Analysis PDF…");
-      await generateStudentPdf(normalized);
-      toast.success("Individual Analysis PDF downloaded!");
+      setSelectedStudentResult(normalized);
+      setIsAnalysisModalOpen(true);
     } catch (err) {
-      console.error("Individual PDF failed", err);
-      toast.error("PDF generation failed");
+      console.error("Failed to load student analysis", err);
+      toast.error("Failed to load student analysis");
+    } finally {
+      setIsLoadingStudentAnalysis(false);
     }
   }
 
   /* ─────────────────────── RENDER ─────────────────────── */
   return (
     <div className="space-y-6">
+      {/* Top action header */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-2xl font-bold">Reports &amp; Student Analysis</h1>
+          <h1 className="font-display text-2xl font-bold tracking-tight">Reports &amp; Student Analysis</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Performance analytics, rankings, individual analysis and proctoring violations across colleges.
+            Canonical Firestore reports from <code className="text-xs bg-muted px-1.5 py-0.5 rounded">assessmentResults/{'{tenantId}'}/{'{assessmentId}'}</code>.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" className="rounded-xl" onClick={exportCsv} disabled={normalizedResults.length === 0}>
-            <Download className="size-4" /> CSV
+          {/* 1. Marks Report (CSV) */}
+          <Button
+            variant="outline"
+            className="rounded-xl shadow-sm border-primary/30 hover:bg-primary/5 font-medium"
+            onClick={exportMarksReportCsv}
+            disabled={normalizedResults.length === 0}
+            title="Download Marks Report (CSV with S.No, Timings, Scores)"
+          >
+            <Download className="size-4 mr-1.5 text-primary" /> Marks Report (CSV)
           </Button>
-          <Button variant="outline" className="rounded-xl" onClick={exportExcel} disabled={normalizedResults.length === 0}>
-            <FileSpreadsheet className="size-4" /> Excel
-          </Button>
-          <Button variant="outline" className="rounded-xl" onClick={exportSectionAnalysis} disabled={normalizedResults.length === 0} title="Export section-wise analysis Excel">
-            <Layers className="size-4" /> Sections
-          </Button>
-          <Button variant="outline" className="rounded-xl" onClick={exportAssessmentWorkbooks}
+
+          {/* 2. Assessment Report (Excel Workbook) */}
+          <Button
+            variant="outline"
+            className="rounded-xl shadow-sm border-emerald-500/30 hover:bg-emerald-500/5 font-medium"
+            onClick={exportAssessmentReportWorkbook}
             disabled={!pulledAssessmentId || normalizedResults.length === 0}
-            title={pulledAssessmentId ? "Export per-assessment summary workbooks" : "Select and pull an assessment first"}>
-            <BarChart2 className="size-4" /> Workbooks
+            title="Download Assessment Report (Excel Workbook with Summary + Test Results)"
+          >
+            <FileSpreadsheet className="size-4 mr-1.5 text-emerald-600 dark:text-emerald-400" /> Assessment Report (Excel)
           </Button>
-          <Button variant="outline" className="rounded-xl" onClick={exportAnalysis}
+
+          {/* 3. Institutional Analysis (PDF) */}
+          <Button
+            variant="outline"
+            className="rounded-xl shadow-sm border-purple-500/30 hover:bg-purple-500/5 font-medium"
+            onClick={exportInstitutionalAnalysisPdf}
             disabled={!pulledAssessmentId || normalizedResults.length === 0}
-            title={pulledAssessmentId ? "Export 5-page analysis PDF" : "Pull an assessment first"}>
-            <FileText className="size-4" /> Analysis PDF
+            title="Download Complete Institutional Analysis Report (PDF)"
+          >
+            <FileText className="size-4 mr-1.5 text-purple-600 dark:text-purple-400" /> Institutional Analysis (PDF)
           </Button>
-          <Button variant="outline" className="rounded-xl" onClick={exportPdf} disabled={normalizedResults.length === 0}>
-            <FileText className="size-4" /> PDF (Individual)
-          </Button>
-          <Button variant="outline" className="rounded-xl" onClick={exportZip} disabled={isZipping || normalizedResults.length === 0}>
-            <Download className="size-4" /> {isZipping ? `ZIP ${zipProgress}%` : "ZIP All"}
+
+          {/* 4. Complete ZIP Download */}
+          <Button
+            className="rounded-xl shadow-sm font-medium gap-1.5"
+            onClick={exportCompleteZip}
+            disabled={isZipping || normalizedResults.length === 0}
+            title="Download All 3 Reports + All Student Individual Performance PDFs in one ZIP"
+          >
+            <Download className="size-4" /> {isZipping ? `Generating ZIP (${zipProgress}%)…` : "Download All (ZIP)"}
           </Button>
         </div>
       </div>
 
-      {/* Filters */}
-      <Card className="rounded-2xl">
-        <CardContent className="grid gap-3 p-4 md:grid-cols-7">
+      {/* ─── 3-Step Guided Scope Selector ─── */}
+      <Card className="rounded-2xl border-primary/20 bg-card/70 shadow-sm backdrop-blur-md">
+        <CardContent className="p-5 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/50 pb-3">
+            <div className="flex items-center gap-2">
+              <span className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-xs shadow-sm">
+                1
+              </span>
+              <div>
+                <h2 className="text-sm font-semibold tracking-tight">Step 1: Choose College</h2>
+              </div>
+              <span className="text-muted-foreground text-xs">→</span>
+              <span className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-xs shadow-sm">
+                2
+              </span>
+              <div>
+                <h2 className="text-sm font-semibold tracking-tight">Step 2: Choose Batch / Year</h2>
+              </div>
+              <span className="text-muted-foreground text-xs">→</span>
+              <span className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-xs shadow-sm">
+                3
+              </span>
+              <div>
+                <h2 className="text-sm font-semibold tracking-tight">Step 3: Choose Mapped Assessment</h2>
+              </div>
+            </div>
+
+            {selectedCohort && (
+              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                <Badge variant="outline" className="rounded-md font-medium">
+                  🎓 {selectedCohort.label || selectedCohort.year}
+                </Badge>
+                {selectedCohort.studentCount !== undefined && (
+                  <Badge variant="secondary" className="rounded-md font-normal">
+                    👥 {selectedCohort.studentCount} Students
+                  </Badge>
+                )}
+                {selectedCohort.allowedModules && (
+                  <Badge variant="secondary" className="rounded-md font-normal">
+                    📚 {selectedCohort.allowedModules.length} Mapped Modules
+                  </Badge>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {/* Step 1: Tenant */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <School className="size-3.5 text-primary" /> 1. College / Tenant
+              </Label>
+              <Select
+                value={tenantFilter}
+                onValueChange={(val) => {
+                  setTenantFilter(val);
+                  setCohortFilter("all");
+                  setAssessmentFilter("all");
+                  setPulledRows([]);
+                  setPulledAssessmentId(null);
+                }}
+                disabled={Boolean(scopedTenantId)}
+              >
+                <SelectTrigger className="rounded-xl font-medium" aria-label="Select college">
+                  <SelectValue placeholder="Select College…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {!scopedTenantId && <SelectItem value="all">All Colleges (Superadmin)</SelectItem>}
+                  {tenants.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Step 2: Cohort / Batch Year */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <GraduationCap className="size-3.5 text-primary" /> 2. Graduation Year / Cohort
+              </Label>
+              <Select
+                value={cohortFilter}
+                onValueChange={(val) => {
+                  setCohortFilter(val);
+                  setAssessmentFilter("all");
+                  setPulledRows([]);
+                  setPulledAssessmentId(null);
+                }}
+                disabled={cohortsQ.isLoading || availableCohorts.length === 0}
+              >
+                <SelectTrigger className="rounded-xl font-medium" aria-label="Select cohort">
+                  <SelectValue placeholder={cohortsQ.isLoading ? "Loading cohorts…" : (availableCohorts.length === 0 ? "All Batches / Years" : "Select Batch / Year…")} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Batches / Years</SelectItem>
+                  {availableCohorts.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.label || c.year} {c.studentCount ? `(${c.studentCount} students)` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Step 3: Assessment (Resolved from allowedModules + results) */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <ClipboardList className="size-3.5 text-primary" /> 3. Mapped Assessment
+              </Label>
+              <Select
+                value={assessmentFilter}
+                onValueChange={(val) => {
+                  setAssessmentFilter(val);
+                  setPulledRows([]);
+                  setPulledAssessmentId(null);
+                }}
+                disabled={resolvedAssessmentOptions.length === 0}
+              >
+                <SelectTrigger className="rounded-xl border-primary/40 font-medium" aria-label="Select assessment">
+                  <SelectValue placeholder={resolvedAssessmentOptions.length === 0 ? "No mapped assessments" : "⚡ Choose Assessment…"} />
+                </SelectTrigger>
+                <SelectContent className="max-h-72">
+                  <SelectItem value="all">— Select Assessment —</SelectItem>
+                  {resolvedAssessmentOptions.map((a) => (
+                    <SelectItem key={a.id} value={a.id}>
+                      <span className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-[10px] uppercase tracking-wider py-0 px-1 font-semibold">
+                          {a.type}
+                        </Badge>
+                        <span className="truncate">{a.title}</span>
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Step 4: Action Button */}
+            <div className="flex items-end">
+              <Button
+                className="w-full rounded-xl gap-2 font-medium shadow-sm h-10"
+                onClick={pullReports}
+                disabled={isPulling || !assessmentFilter || assessmentFilter === "all"}
+              >
+                {isPulling ? (
+                  <>Loading Results…</>
+                ) : (
+                  <>
+                    <ClipboardList className="size-4" /> Pull Reports ▶
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ─── Secondary Live Filters Bar ─── */}
+      <Card className="rounded-2xl shadow-sm">
+        <CardContent className="grid gap-3 p-4 md:grid-cols-6 items-center">
           <div className="relative md:col-span-2">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input className="rounded-xl pl-9" placeholder="Search name, email, roll…" value={search} onChange={(e) => setSearch(e.target.value)} aria-label="Search students" />
+            <Input
+              className="rounded-xl pl-9"
+              placeholder="Search student name, roll no, email…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search students"
+            />
           </div>
-          {!scopedTenantId ? (
-            <Select value={tenantFilter} onValueChange={setTenantFilter}>
-              <SelectTrigger className="rounded-xl" aria-label="Filter by college"><SelectValue placeholder="All colleges" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All colleges</SelectItem>
-                {tenants.map((t) => <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          ) : null}
-          <Select value={yearFilter} onValueChange={setYearFilter}>
-            <SelectTrigger className="rounded-xl" aria-label="Filter by year"><SelectValue placeholder="All years" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All years</SelectItem>
-              {ALLOWED_YEARS.map((y) => <SelectItem key={y} value={y}>{y}</SelectItem>)}
-            </SelectContent>
-          </Select>
+
           <Select value={deptFilter} onValueChange={setDeptFilter}>
-            <SelectTrigger className="rounded-xl" aria-label="Filter by department"><SelectValue placeholder="All departments" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All departments</SelectItem>
-              {DEPARTMENTS.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={assessmentFilter} onValueChange={(v) => { setAssessmentFilter(v); setPulledRows([]); setPulledAssessmentId(null); }}>
-            <SelectTrigger className="rounded-xl border-primary/50 font-medium" aria-label="Select assessment">
-              <SelectValue placeholder="⚡ Select an assessment…" />
+            <SelectTrigger className="rounded-xl" aria-label="Filter by department">
+              <SelectValue placeholder="All departments" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">— Choose Assessment —</SelectItem>
-              {assessmentOptions.map((a) => <SelectItem key={a.id} value={a.id}>{a.title}</SelectItem>)}
+              <SelectItem value="all">All Departments</SelectItem>
+              {availableDepartments.map((d) => (
+                <SelectItem key={d} value={d}>{d}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="rounded-xl" aria-label="Filter by type"><SelectValue placeholder="All types" /></SelectTrigger>
+
+          <Select value={statusFilter} onValueChange={(v: any) => setStatusFilter(v)}>
+            <SelectTrigger className="rounded-xl" aria-label="Filter by status">
+              <SelectValue placeholder="All Results" />
+            </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All types</SelectItem>
+              <SelectItem value="all">All Results (Pass &amp; Fail)</SelectItem>
+              <SelectItem value="passed">✅ Passed Only</SelectItem>
+              <SelectItem value="failed">❌ Failed Only</SelectItem>
+              <SelectItem value="flagged">🚨 Flagged with Violations</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <SelectTrigger className="rounded-xl" aria-label="Filter by test type">
+              <SelectValue placeholder="All types" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Types</SelectItem>
               <SelectItem value="mcq">MCQ</SelectItem>
               <SelectItem value="coding">Coding</SelectItem>
               <SelectItem value="multisection">Multi-Section</SelectItem>
+              <SelectItem value="spoken-english">Spoken English</SelectItem>
             </SelectContent>
           </Select>
+
           <div className="flex items-center gap-2">
-            <Label htmlFor="pass-threshold" className="whitespace-nowrap text-xs text-muted-foreground">Pass ≥</Label>
-            <Input id="pass-threshold" type="number" min={0} max={100} className="rounded-xl" value={passThreshold} onChange={(e) => setPassThreshold(Number(e.target.value) || 0)} aria-label="Pass threshold" />
+            <Label htmlFor="pass-threshold" className="whitespace-nowrap text-xs text-muted-foreground font-medium">Pass ≥</Label>
+            <Input
+              id="pass-threshold"
+              type="number"
+              min={0}
+              max={100}
+              className="rounded-xl"
+              value={passThreshold}
+              onChange={(e) => setPassThreshold(Number(e.target.value) || 0)}
+              aria-label="Pass threshold percentage"
+            />
+            <span className="text-xs text-muted-foreground font-medium">%</span>
           </div>
-          <Button
-            className="rounded-xl"
-            onClick={pullReports}
-            disabled={isPulling || !assessmentFilter || assessmentFilter === "all"}
-          >
-            {isPulling ? "Loading…" : "Pull Reports ▶"}
-          </Button>
         </CardContent>
       </Card>
 
@@ -653,8 +997,8 @@ function ReportsPage() {
             <FileSpreadsheet className="mx-auto mb-4 size-12 text-muted-foreground/40" />
             <p className="text-lg font-semibold">Select an Assessment &amp; Pull Reports</p>
             <p className="mt-2 text-sm text-muted-foreground">
-              Choose a College → Year → Assessment from the filters above,<br />
-              then click <strong>Pull Reports ▶</strong> to load student results.
+              Choose a College → Batch / Year → Assessment from the filters above,<br />
+              then click <strong>Pull Reports ▶</strong> to query <code className="text-xs bg-muted px-1.5 py-0.5 rounded">assessmentResults/{'{tenantId}'}/{'{assessmentId}'}</code>.
             </p>
           </CardContent>
         </Card>
@@ -788,26 +1132,68 @@ function ReportsPage() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Name</TableHead><TableHead>Roll</TableHead><TableHead>College</TableHead>
-                          <TableHead>Dept</TableHead><TableHead>Year</TableHead><TableHead>Assessment</TableHead>
-                          <TableHead>Score</TableHead><TableHead>%</TableHead><TableHead>Result</TableHead>
-                          <TableHead>Violations</TableHead><TableHead>Submitted</TableHead>
+                          <TableHead>Student</TableHead>
+                          <TableHead>Roll No</TableHead>
+                          <TableHead>College</TableHead>
+                          <TableHead>Dept</TableHead>
+                          <TableHead>Batch</TableHead>
+                          <TableHead>Assessment</TableHead>
+                          <TableHead>Score</TableHead>
+                          <TableHead>%</TableHead>
+                          <TableHead>Result</TableHead>
+                          <TableHead>Started At</TableHead>
+                          <TableHead>Submitted At</TableHead>
+                          <TableHead>Duration</TableHead>
+                          <TableHead>Violations</TableHead>
+                          <TableHead>Action</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {filteredResults.slice(0, 300).map((r) => (
                           <TableRow key={r.path}>
-                            <TableCell className="font-medium">{r.displayName || r.email}</TableCell>
-                            <TableCell>{r.rollNumber || "—"}</TableCell>
+                            <TableCell className="font-medium">
+                              <div>
+                                <p className="font-medium text-foreground">{r.displayName || r.email}</p>
+                                {r.displayName && <p className="text-xs text-muted-foreground">{r.email}</p>}
+                              </div>
+                            </TableCell>
+                            <TableCell className="font-mono text-xs">{r.rollNumber || "—"}</TableCell>
                             <TableCell>{tenantNameOf.get(r.tenantId) ?? r.tenantId}</TableCell>
-                            <TableCell>{r.department || "—"}</TableCell>
-                            <TableCell>{normaliseYear(r.cohortId) ?? "—"}</TableCell>
-                            <TableCell className="max-w-40 truncate">{r.assessmentTitle}</TableCell>
-                            <TableCell>{r.totalScore}/{r.maxScore}</TableCell>
-                            <TableCell>{pf.format(r.percentage)}%</TableCell>
-                            <TableCell>{r.percentage >= passThreshold ? <Badge className="rounded-full text-[10px]">Pass</Badge> : <Badge variant="destructive" className="rounded-full text-[10px]">Fail</Badge>}</TableCell>
-                            <TableCell>{r.violations || "—"}</TableCell>
-                            <TableCell className="whitespace-nowrap">{r.submittedAt?.toLocaleDateString() ?? "—"}</TableCell>
+                            <TableCell><Badge variant="outline" className="text-xs">{r.department || "—"}</Badge></TableCell>
+                            <TableCell>{normaliseYear(r.year || r.cohortId) ?? "—"}</TableCell>
+                            <TableCell className="max-w-40 truncate" title={r.assessmentTitle}>{r.assessmentTitle}</TableCell>
+                            <TableCell className="font-semibold">{r.totalScore}/{r.maxScore}</TableCell>
+                            <TableCell className="font-bold">{pf.format(r.percentage)}%</TableCell>
+                            <TableCell>{r.percentage >= passThreshold ? <Badge className="rounded-full text-[10px] bg-emerald-500 hover:bg-emerald-600">Pass</Badge> : <Badge variant="destructive" className="rounded-full text-[10px]">Fail</Badge>}</TableCell>
+                            <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                              {r.startedAt ? `${formatDateDisplay(r.startedAt)} ${formatTime(r.startedAt)}` : "—"}
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                              {r.submittedAt ? `${formatDateDisplay(r.submittedAt)} ${formatTime(r.submittedAt)}` : "—"}
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap text-xs font-medium">
+                              {formatHrMinSec(r.timeTakenSeconds)}
+                            </TableCell>
+                            <TableCell>
+                              {r.violations > 0 ? (
+                                <Badge variant="destructive" className="rounded-full text-[10px] font-semibold">
+                                  {r.violations}
+                                </Badge>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">0</span>
+                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="rounded-lg h-7 text-xs gap-1 hover:border-primary hover:text-primary transition-colors"
+                                onClick={() => openStudentAnalysis(r)}
+                                title="View individual student performance breakdown"
+                              >
+                                <Eye className="size-3" /> View Analysis
+                              </Button>
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -835,37 +1221,66 @@ function ReportsPage() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Rank</TableHead><TableHead>Student</TableHead><TableHead>Roll</TableHead>
-                          <TableHead>College</TableHead><TableHead>Year</TableHead><TableHead>Dept</TableHead>
-                          <TableHead>Assessment</TableHead><TableHead>Score</TableHead><TableHead>%</TableHead>
-                          <TableHead>Submitted</TableHead><TableHead>Violations</TableHead><TableHead>Result</TableHead>
-                          <TableHead>Analysis</TableHead>
+                          <TableHead>Rank</TableHead>
+                          <TableHead>Student</TableHead>
+                          <TableHead>Roll No</TableHead>
+                          <TableHead>College</TableHead>
+                          <TableHead>Batch</TableHead>
+                          <TableHead>Dept</TableHead>
+                          <TableHead>Score</TableHead>
+                          <TableHead>%</TableHead>
+                          <TableHead>Started At</TableHead>
+                          <TableHead>Submitted At</TableHead>
+                          <TableHead>Duration</TableHead>
+                          <TableHead>Violations</TableHead>
+                          <TableHead>Result</TableHead>
+                          <TableHead>Action</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {ranked.slice(0, 500).map((r) => (
                           <TableRow key={r.path}>
                             <TableCell>{medalBadge(r.rank)}</TableCell>
-                            <TableCell className="font-medium">{r.displayName || r.email}</TableCell>
-                            <TableCell>{r.rollNumber || "—"}</TableCell>
+                            <TableCell className="font-medium">
+                              <div>
+                                <p className="font-medium text-foreground">{r.displayName || r.email}</p>
+                                {r.displayName && <p className="text-xs text-muted-foreground">{r.email}</p>}
+                              </div>
+                            </TableCell>
+                            <TableCell className="font-mono text-xs">{r.rollNumber || "—"}</TableCell>
                             <TableCell>{tenantNameOf.get(r.tenantId) ?? r.tenantId}</TableCell>
-                            <TableCell>{normaliseYear(r.cohortId) ?? "—"}</TableCell>
-                            <TableCell>{r.department || "—"}</TableCell>
-                            <TableCell className="max-w-40 truncate">{r.assessmentTitle}</TableCell>
-                            <TableCell>{r.totalScore}/{r.maxScore}</TableCell>
-                            <TableCell>{pf.format(r.percentage)}%</TableCell>
-                            <TableCell className="whitespace-nowrap">{r.submittedAt?.toLocaleDateString() ?? "—"}</TableCell>
-                            <TableCell>{r.violations}</TableCell>
-                            <TableCell>{r.percentage >= passThreshold ? <Badge className="rounded-full text-[10px]">Pass</Badge> : <Badge variant="destructive" className="rounded-full text-[10px]">Fail</Badge>}</TableCell>
-                          <TableCell>
+                            <TableCell>{normaliseYear(r.year || r.cohortId) ?? "—"}</TableCell>
+                            <TableCell><Badge variant="outline" className="text-xs">{r.department || "—"}</Badge></TableCell>
+                            <TableCell className="font-semibold">{r.totalScore}/{r.maxScore}</TableCell>
+                            <TableCell className="font-bold">{pf.format(r.percentage)}%</TableCell>
+                            <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                              {r.startedAt ? `${formatDateDisplay(r.startedAt)} ${formatTime(r.startedAt)}` : "—"}
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                              {r.submittedAt ? `${formatDateDisplay(r.submittedAt)} ${formatTime(r.submittedAt)}` : "—"}
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap text-xs font-medium">
+                              {formatHrMinSec(r.timeTakenSeconds)}
+                            </TableCell>
+                            <TableCell>
+                              {r.violations > 0 ? (
+                                <Badge variant="destructive" className="rounded-full text-[10px] font-semibold">
+                                  {r.violations}
+                                </Badge>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">0</span>
+                              )}
+                            </TableCell>
+                            <TableCell>{r.percentage >= passThreshold ? <Badge className="rounded-full text-[10px] bg-emerald-500 hover:bg-emerald-600">Pass</Badge> : <Badge variant="destructive" className="rounded-full text-[10px]">Fail</Badge>}</TableCell>
+                            <TableCell>
                               <Button
                                 size="sm"
                                 variant="outline"
-                                className="rounded-lg h-7 text-xs gap-1"
-                                onClick={() => printIndividualReport(r)}
-                                title="View individual analysis PDF"
+                                className="rounded-lg h-7 text-xs gap-1 hover:border-primary hover:text-primary transition-colors"
+                                onClick={() => openStudentAnalysis(r)}
+                                title="View individual student performance breakdown"
                               >
-                                <FileText className="size-3" /> View Analysis
+                                <Eye className="size-3" /> View Analysis
                               </Button>
                             </TableCell>
                           </TableRow>
@@ -888,7 +1303,7 @@ function ReportsPage() {
                   <CardTitle className="text-sm font-semibold">Score matrix — students × assessments</CardTitle>
                   <p className="mt-0.5 text-xs text-muted-foreground">One row per student · one column per assessment — mirrors old admin scores report format</p>
                 </div>
-                <Button size="sm" variant="outline" className="rounded-xl h-7 text-xs" onClick={exportCsv}>
+                <Button size="sm" variant="outline" className="rounded-xl h-7 text-xs" onClick={exportMarksReportCsv}>
                   <FileText className="mr-1 size-3" /> CSV
                 </Button>
               </CardHeader>
@@ -1060,9 +1475,9 @@ function ReportsPage() {
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-xs">{r.submittedAt?.toLocaleDateString() ?? "—"}</TableCell>
                           <TableCell>
-                            <Button size="icon" variant="ghost" className="size-7 rounded-lg" title="Download individual PDF"
-                              onClick={() => printIndividualReport(r)}>
-                              <Printer className="size-3.5" />
+                            <Button size="icon" variant="ghost" className="size-7 rounded-lg hover:text-primary" title="View individual student analysis"
+                              onClick={() => openStudentAnalysis(r)}>
+                              <Eye className="size-3.5" />
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -1091,7 +1506,7 @@ function ReportsPage() {
                 </p>
               </div>
               <Button size="sm" variant="outline" className="rounded-xl h-7 text-xs"
-                onClick={exportSectionAnalysis} disabled={normalizedResults.length === 0}>
+                onClick={exportAssessmentReportWorkbook} disabled={normalizedResults.length === 0}>
                 <FileSpreadsheet className="mr-1 size-3" /> Excel
               </Button>
             </CardHeader>
@@ -1162,6 +1577,209 @@ function ReportsPage() {
         </TabsContent>
 
       </Tabs>
+
+      {/* ─── Student Performance Analysis Dialog ─── */}
+      <Dialog open={isAnalysisModalOpen} onOpenChange={setIsAnalysisModalOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto rounded-2xl p-6">
+          <DialogHeader>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <DialogTitle className="text-xl font-bold tracking-tight">
+                  {selectedStudentResult?.name || "Student Analysis"}
+                </DialogTitle>
+                <DialogDescription className="text-xs text-muted-foreground mt-0.5">
+                  Individual Performance Report • {selectedStudentResult?.testName || "Assessment"}
+                </DialogDescription>
+              </div>
+              {selectedStudentResult && (
+                <div className="flex items-center gap-2">
+                  <Badge className={`rounded-full px-3 py-1 font-semibold text-xs ${selectedStudentResult.percentage >= passThreshold ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30" : "bg-destructive/15 text-destructive border-destructive/30"}`}>
+                    {selectedStudentResult.status} ({selectedStudentResult.percentage}%)
+                  </Badge>
+                  <Badge variant="outline" className="rounded-full px-3 py-1 text-xs">
+                    {selectedStudentResult.category}
+                  </Badge>
+                </div>
+              )}
+            </div>
+          </DialogHeader>
+
+          {selectedStudentResult && (
+            <div className="space-y-6 pt-2">
+              {/* Profile Bar */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-xl bg-muted/40 border border-border/60 text-xs">
+                <div>
+                  <span className="text-muted-foreground block text-[10px] uppercase tracking-wider font-semibold">Roll Number</span>
+                  <span className="font-mono font-medium">{selectedStudentResult.rollNumber || "—"}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[10px] uppercase tracking-wider font-semibold">Department</span>
+                  <span className="font-medium">{selectedStudentResult.department || "—"}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[10px] uppercase tracking-wider font-semibold">Graduation Batch</span>
+                  <span className="font-medium">{selectedStudentResult.year || "—"}</span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground block text-[10px] uppercase tracking-wider font-semibold">College</span>
+                  <span className="font-medium truncate block" title={selectedStudentResult.college}>{selectedStudentResult.college || "—"}</span>
+                </div>
+              </div>
+
+              {/* KPI Stat Cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3.5 rounded-xl bg-card border border-border shadow-sm">
+                  <p className="text-[11px] text-muted-foreground font-medium">Score Obtained</p>
+                  <p className="text-xl font-bold mt-1 text-foreground">
+                    {selectedStudentResult.score} <span className="text-xs font-normal text-muted-foreground">/ {selectedStudentResult.totalMarks}</span>
+                  </p>
+                  <div className="mt-2 h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                    <div className={`h-full rounded-full ${selectedStudentResult.percentage >= passThreshold ? "bg-emerald-500" : "bg-destructive"}`} style={{ width: `${Math.min(100, selectedStudentResult.percentage)}%` }} />
+                  </div>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-card border border-border shadow-sm">
+                  <p className="text-[11px] text-muted-foreground font-medium">Duration Taken</p>
+                  <p className="text-xl font-bold mt-1 text-foreground">
+                    {formatHrMinSec(selectedStudentResult.timeTakenSeconds)}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    {selectedStudentResult.startedAt ? formatTime(selectedStudentResult.startedAt) : "—"} → {selectedStudentResult.submittedAt ? formatTime(selectedStudentResult.submittedAt) : "—"}
+                  </p>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-card border border-border shadow-sm">
+                  <p className="text-[11px] text-muted-foreground font-medium">Proctor Violations</p>
+                  <p className={`text-xl font-bold mt-1 ${selectedStudentResult.violationCount > 0 ? "text-destructive" : "text-emerald-600 dark:text-emerald-400"}`}>
+                    {selectedStudentResult.violationCount}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    {selectedStudentResult.autoSubmitted ? "Auto Submitted" : "Normal Submission"}
+                  </p>
+                </div>
+
+                <div className="p-3.5 rounded-xl bg-card border border-border shadow-sm">
+                  <p className="text-[11px] text-muted-foreground font-medium">Readiness Insight</p>
+                  <p className="text-sm font-semibold mt-1 truncate" title={selectedStudentResult.insight}>
+                    {selectedStudentResult.insight}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    {selectedStudentResult.category}
+                  </p>
+                </div>
+              </div>
+
+              {/* Section-by-Section Breakdown */}
+              {selectedStudentResult.sections.length > 0 && (
+                <div className="space-y-2.5">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Section-Wise Performance</h3>
+                  <div className="border border-border/80 rounded-xl overflow-hidden shadow-sm">
+                    <Table>
+                      <TableHeader className="bg-muted/40">
+                        <TableRow>
+                          <TableHead className="text-xs font-semibold">Section Name</TableHead>
+                          <TableHead className="text-xs font-semibold text-right">Score</TableHead>
+                          <TableHead className="text-xs font-semibold text-right">Max</TableHead>
+                          <TableHead className="text-xs font-semibold text-right">Accuracy %</TableHead>
+                          <TableHead className="text-xs font-semibold">Time Taken</TableHead>
+                          <TableHead className="text-xs font-semibold">Status / CEFR</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedStudentResult.sections.map((sec: NormalizedSection, idx: number) => (
+                          <TableRow key={idx}>
+                            <TableCell className="font-medium text-xs">{sec.name}</TableCell>
+                            <TableCell className="text-right text-xs font-semibold">{sec.score}</TableCell>
+                            <TableCell className="text-right text-xs text-muted-foreground">{sec.totalMarks}</TableCell>
+                            <TableCell className="text-right text-xs font-bold">
+                              <span className={sec.percentage >= passThreshold ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"}>
+                                {sec.percentage}%
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{sec.timeTaken || "—"}</TableCell>
+                            <TableCell className="text-xs">
+                              {sec.cefrLevel ? (
+                                <Badge variant="secondary" className="rounded-full text-[10px]">{sec.cefrLevel} {sec.wpm ? `• ${sec.wpm} wpm` : ""}</Badge>
+                              ) : (
+                                <Badge className={`rounded-full text-[10px] ${sec.status === "Pass" ? "bg-emerald-500/15 text-emerald-600 border-emerald-500/30" : "bg-destructive/15 text-destructive border-destructive/30"}`}>
+                                  {sec.status}
+                                </Badge>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
+
+              {/* Coding Submissions Breakdown */}
+              {selectedStudentResult.codingSubmissions.length > 0 && (
+                <div className="space-y-2.5">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Coding Challenges Attempted</h3>
+                  <div className="border border-border/80 rounded-xl overflow-hidden shadow-sm">
+                    <Table>
+                      <TableHeader className="bg-muted/40">
+                        <TableRow>
+                          <TableHead className="text-xs font-semibold">Problem</TableHead>
+                          <TableHead className="text-xs font-semibold">Language</TableHead>
+                          <TableHead className="text-xs font-semibold text-right">Score</TableHead>
+                          <TableHead className="text-xs font-semibold text-right">Test Cases</TableHead>
+                          <TableHead className="text-xs font-semibold text-right">Accuracy %</TableHead>
+                          <TableHead className="text-xs font-semibold">Time Taken</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedStudentResult.codingSubmissions.map((code: NormalizedCodingSubmission, idx: number) => (
+                          <TableRow key={idx}>
+                            <TableCell className="font-medium text-xs">
+                              Q{code.questionNumber}: {code.problemTitle}
+                            </TableCell>
+                            <TableCell className="text-xs font-mono">{code.language || "—"}</TableCell>
+                            <TableCell className="text-right text-xs font-semibold">{code.score} / {code.maxMarks}</TableCell>
+                            <TableCell className="text-right text-xs text-muted-foreground">
+                              {code.testsPassed} / {code.totalTests}
+                            </TableCell>
+                            <TableCell className="text-right text-xs font-bold">
+                              <span className={code.accuracy >= 100 ? "text-emerald-600 dark:text-emerald-400" : code.accuracy > 0 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground"}>
+                                {code.accuracy}%
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{code.timeTaken || "—"}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="mt-4 pt-3 border-t border-border/60 flex items-center justify-between sm:justify-between">
+            <Button
+              variant="outline"
+              className="rounded-xl text-xs"
+              onClick={() => setIsAnalysisModalOpen(false)}
+            >
+              Close
+            </Button>
+            {selectedStudentResult && (
+              <Button
+                className="rounded-xl text-xs gap-1.5 font-medium shadow-sm"
+                onClick={async () => {
+                  toast.info("Generating Individual Performance Report PDF…");
+                  await generateStudentPdf(selectedStudentResult);
+                  toast.success("Individual Performance Report PDF downloaded!");
+                }}
+              >
+                <Download className="size-3.5" /> Download PDF (Individual Performance Report)
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

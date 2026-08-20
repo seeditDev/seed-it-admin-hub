@@ -13,7 +13,8 @@ import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import JSZip from "jszip";
 import { saveAs } from "file-saver";
-import type { NormalizedResult, TagStat } from "./reportTypes";
+import * as XLSX from "xlsx-js-style";
+import type { NormalizedResult, TagStat, AssessmentGroup } from "./reportTypes";
 import {
   sanitizePDFText,
   buildTagStats,
@@ -23,6 +24,10 @@ import {
   formatYear,
   formatDateDisplay,
 } from "./reportNormalizer";
+import { buildCsvContent } from "./csvReport";
+import { buildAssessmentWorkbookObject } from "./excelReport";
+import { buildAnalysisPdfDoc } from "./analysisReport";
+import { computeAssessmentGroups } from "./reportAnalytics";
 
 // ── Color Palette ─────────────────────────────────────────────────────────────
 
@@ -53,10 +58,10 @@ function drawHeaderBanner(doc: jsPDF): void {
   doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
   doc.setFontSize(16);
-  doc.text("SEED SEB COMPANY READINESS REPORT", pw / 2, 14, { align: "center" });
+  doc.text("INDIVIDUAL PERFORMANCE REPORT", pw / 2, 14, { align: "center" });
   doc.setFontSize(10);
   doc.setFont("helvetica", "normal");
-  doc.text("Student Performance & Placement Readiness Report", pw / 2, 22, { align: "center" });
+  doc.text("SEED SEB Candidate Section Breakdown & Placement Evaluation", pw / 2, 22, { align: "center" });
   doc.setFontSize(8);
   doc.text(`Generated: ${new Date().toLocaleString("en-IN")}`, 14, 30);
   doc.text(`Report ID: RPT-${Date.now().toString(36).toUpperCase()}`, pw - 60, 30);
@@ -405,18 +410,21 @@ function renderStudentContent(doc: jsPDF, r: NormalizedResult, startY: number): 
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/** Generate and download a single-student PDF report. */
+/** Generate and download a single-student Individual Performance Report PDF. */
 export async function generateStudentPdf(r: NormalizedResult): Promise<void> {
   const doc = createDoc();
   drawHeaderBanner(doc);
   renderStudentContent(doc, r, 48);
   drawFooters(doc);
 
-  const cleanTest    = safeFilename(r.testName);
-  const cleanCollege = safeFilename(r.college);
-  const cleanYear    = safeFilename(formatYear(r.year));
-  const cleanName    = safeFilename(r.name || r.rollNumber);
-  doc.save(`SEED-${cleanTest}-${cleanCollege}-${cleanYear}-${cleanName}.pdf`);
+  const firstName = (r.name || "Student").trim().split(/\s+/)[0] || "Student";
+  const rollNo = r.rollNumber || "Candidate";
+  const testName = r.testName || "Assessment";
+
+  const cleanFirstName = safeFilename(firstName);
+  const cleanRoll = safeFilename(rollNo);
+  const cleanTest = safeFilename(testName);
+  doc.save(`${cleanFirstName}-${cleanRoll}-${cleanTest}.pdf`);
 }
 
 /** Generate a consolidated bulk PDF (all students in one file, each starts on a new page). */
@@ -442,10 +450,10 @@ export async function generateBulkPdf(
   const cleanCollege = safeFilename(filters.college  || sample.college);
   const cleanYear    = safeFilename(formatYear(filters.year || sample.year));
   const dateStr      = new Date().toISOString().slice(0, 10);
-  doc.save(`SEED-${cleanTest}-${cleanCollege}-${cleanYear}-${dateStr}.pdf`);
+  doc.save(`${cleanCollege}-${cleanTest}-${cleanYear}-${dateStr}.pdf`);
 }
 
-/** Generate per-student PDFs and pack them into a ZIP archive. */
+/** Generate a complete bundle ZIP containing Marks Report CSV, Assessment Report Excel, Institutional Analysis PDF, and all student Individual Performance Report PDFs. */
 export async function generateBulkZip(
   results: NormalizedResult[],
   filters: { testName?: string; college?: string; year?: string } = {},
@@ -455,6 +463,64 @@ export async function generateBulkZip(
   const zip = new JSZip();
   const total = results.length;
 
+  const sample = results[0]!;
+  const collegeName = filters.college || sample.college || "College";
+  const testTitle = filters.testName || sample.testName || "Assessment";
+  const dateStr = new Date().toISOString().slice(0, 10);
+  const cleanCollege = safeFilename(collegeName);
+  const cleanTest = safeFilename(testTitle);
+
+  // 1. Add Marks Report CSV
+  try {
+    const csvContent = buildCsvContent(results);
+    zip.file(`${cleanCollege}-${cleanTest}-Marks_Report-${dateStr}.csv`, csvContent);
+  } catch (err) {
+    console.error("Error generating Marks CSV for ZIP:", err);
+  }
+
+  // 2. Add Assessment Report Excel
+  try {
+    const groups = computeAssessmentGroups(results);
+    const group: AssessmentGroup = groups[0] || {
+      testId: sample.testId || "assessment",
+      testName: testTitle,
+      type: sample.assessmentType || "mcq",
+      results,
+      sections: sample.sections,
+      totalSubmissions: results.length,
+      avgPercentage: results.reduce((acc, r) => acc + r.percentage, 0) / (results.length || 1),
+      passRate: 0,
+      colleges: new Set([collegeName]),
+      depts: new Set(),
+      years: new Set(),
+    };
+    const wb = buildAssessmentWorkbookObject(group);
+    if (wb) {
+      const wbBuffer = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+      zip.file(`${cleanCollege}-${cleanTest}-Assessment_Report-${dateStr}.xlsx`, wbBuffer);
+    }
+  } catch (err) {
+    console.error("Error generating assessment workbook for ZIP:", err);
+  }
+
+  // 3. Add Institutional Analysis PDF
+  try {
+    const analysisOpts: { testName?: string; college?: string; year?: string } = {
+      testName: testTitle,
+      college: collegeName,
+    };
+    if (filters.year) analysisOpts.year = filters.year;
+    const analysisDoc = buildAnalysisPdfDoc(results, analysisOpts);
+    if (analysisDoc) {
+      const analysisBlob = analysisDoc.output("blob");
+      zip.file(`${cleanCollege}-${cleanTest}-Institutional_Analysis-${dateStr}.pdf`, analysisBlob);
+    }
+  } catch (err) {
+    console.error("Error generating institutional analysis PDF for ZIP:", err);
+  }
+
+  // 4. Add Individual Performance Reports folder
+  const individualFolder = zip.folder("Individual_Performance_Reports");
   for (let i = 0; i < total; i++) {
     const r = results[i]!;
     const doc = createDoc();
@@ -463,22 +529,24 @@ export async function generateBulkZip(
     drawFooters(doc);
 
     const pdfBlob = doc.output("blob");
-    const cleanTest    = safeFilename(r.testName);
-    const cleanCollege = safeFilename(r.college);
-    const cleanYear    = safeFilename(formatYear(r.year));
-    const cleanName    = safeFilename(r.name || r.rollNumber || `Student_${i + 1}`);
-    zip.file(`SEED-${cleanTest}-${cleanCollege}-${cleanYear}-${cleanName}.pdf`, pdfBlob);
+    const firstName = (r.name || `Student_${i + 1}`).trim().split(/\s+/)[0] || "Student";
+    const rollNo = r.rollNumber || `Roll_${i + 1}`;
+    const testName = r.testName || "Assessment";
+    const cleanFirstName = safeFilename(firstName);
+    const cleanRoll = safeFilename(rollNo);
+    const cleanStudentTest = safeFilename(testName);
+
+    const pdfName = `${cleanFirstName}-${cleanRoll}-${cleanStudentTest}.pdf`;
+    if (individualFolder) {
+      individualFolder.file(pdfName, pdfBlob);
+    } else {
+      zip.file(pdfName, pdfBlob);
+    }
 
     onProgress?.(Math.round(((i + 1) / total) * 100));
-    // Yield to event loop so UI stays responsive
     await new Promise((res) => setTimeout(res, 0));
   }
 
-  const sample = results[0]!;
-  const cleanTest    = safeFilename(filters.testName || sample.testName);
-  const cleanCollege = safeFilename(filters.college  || sample.college);
-  const cleanYear    = safeFilename(formatYear(filters.year || sample.year));
-
   const zipBlob = await zip.generateAsync({ type: "blob" });
-  saveAs(zipBlob, `SEED-${cleanTest}-${cleanCollege}-${cleanYear}-All_Student_PDFs.zip`);
+  saveAs(zipBlob, `${cleanCollege}-${cleanTest}-Complete_Reports_Bundle-${dateStr}.zip`);
 }

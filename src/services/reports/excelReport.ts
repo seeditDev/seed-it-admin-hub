@@ -452,15 +452,151 @@ export function generateAssessmentWorkbook(group: AssessmentGroup): void {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ws["!cols"] = row2Names.map((_, c) => ({ wch: Math.max(12, ...dataAoa.slice(1).map((row) => String(((row as any[])[c] as any)?.v ?? (row as any[])[c] ?? "").length + 2)) }));
 
-  const cleanTest   = safeFilename(group.testName);
-  const cleanCol    = safeFilename([...group.colleges].join("_") || "ALL");
-  const cleanYear   = safeFilename(formatYear(sample.year));
+  const cleanTest   = safeFilename(group.testName || "Assessment");
+  const cleanCol    = safeFilename([...group.colleges].join("_") || sample.college || "College");
   const dateStr     = new Date().toISOString().slice(0, 10);
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, summaryWs, "Summary");
   XLSX.utils.book_append_sheet(wb, ws, "Test Results");
-  XLSX.writeFile(wb, `SEED-${cleanTest}-${cleanCol}-${cleanYear}-${dateStr}.xlsx`);
+  XLSX.writeFile(wb, `${cleanCol}-${cleanTest}-Assessment_Report-${dateStr}.xlsx`);
+}
+
+export function buildAssessmentWorkbookObject(group: AssessmentGroup): XLSX.WorkBook | null {
+  if (!group.results.length) return null;
+  const results = group.results;
+  const secs = group.sections;
+  const isSpoken = /spoken_english|speech|sea/i.test(group.type);
+
+  const totalStudents = results.length;
+  const avgPct = totalStudents > 0 ? results.reduce((s, r) => s + r.percentage, 0) / totalStudents : 0;
+  const highestPct = totalStudents > 0 ? Math.max(...results.map((r) => r.percentage)) : 0;
+  const lowestPct  = totalStudents > 0 ? Math.min(...results.map((r) => r.percentage)) : 0;
+  const sample = results[0]!;
+  const totalMarks = sample.totalMarks || 100;
+  const passThreshold = 40;
+
+  // Build Summary sheet aoa
+  const S_AOA: any[][] = [];
+  S_AOA.push([HMain("ASSESSMENT REPORT SUMMARY")]);
+  S_AOA.push([HKey("Assessment Title"), CD(group.testName), HKey("Report Date"), CD(formatDateDisplay(new Date()))]);
+  S_AOA.push([HKey("Test Type"), CD(group.type.toUpperCase()), HKey("Total Candidates"), CD(totalStudents)]);
+  S_AOA.push([HKey("Total Marks"), CD(totalMarks), HKey("Class Average %"), CD(`${Math.round(avgPct * 10) / 10}%`)]);
+  S_AOA.push([HKey("Highest %"), CD(`${Math.round(highestPct * 10) / 10}%`), HKey("Lowest %"), CD(`${Math.round(lowestPct * 10) / 10}%`)]);
+  S_AOA.push([]);
+
+  // Category breakdown
+  const cats = [
+    { name: "Best (>85%)", count: results.filter((r) => r.percentage >= 85).length },
+    { name: "Good (70-84%)", count: results.filter((r) => r.percentage >= 70 && r.percentage < 85).length },
+    { name: "Average (40-69%)", count: results.filter((r) => r.percentage >= 40 && r.percentage < 70).length },
+    { name: "Poor (<40%)", count: results.filter((r) => r.percentage < 40).length },
+  ];
+  S_AOA.push([HSec("PERFORMANCE BRACKETS")]);
+  S_AOA.push([HCol("Category"), HCol("Students"), HCol("Percentage")]);
+  cats.forEach((c) => {
+    S_AOA.push([CD(c.name), CD(c.count), CD(`${totalStudents > 0 ? Math.round((c.count / totalStudents) * 100) : 0}%`)]);
+  });
+  S_AOA.push([]);
+
+  const summaryWs = XLSX.utils.aoa_to_sheet(S_AOA);
+
+  // Build Test Results sheet
+  const codingQMap = new Map<number, string>();
+  for (const r of results) {
+    for (const c of r.codingSubmissions) {
+      if (!codingQMap.has(c.questionNumber)) codingQMap.set(c.questionNumber, c.problemTitle);
+    }
+  }
+  const codingQList = [...codingQMap.entries()].sort(([a], [b]) => a - b);
+
+  const baseH1 = ["S.No", "Candidate ID / Roll No", "Student Name", "Email", "College", "Department", "Year", "Test Name", "Test ID", "Test Type", "Start Time", "End Time", "Time Taken", "Violations", "Auto Submitted"];
+  const row1Cells: any[] = baseH1.map(HMain);
+  const row2Cells: any[] = baseH1.map(() => cell(""));
+
+  if (isSpoken) {
+    row1Cells.push(HSec("SPOKEN ENGLISH")); row1Cells.push(cell("")); row1Cells.push(cell("")); row1Cells.push(cell(""));
+    row2Cells.push(HCol("CEFR Level"), HCol("CEFR Name"), HCol("WPM"), HCol("Fillers"));
+  } else {
+    for (const sec of secs) {
+      const isSpokenSec = /spoken|speech|communication|sea/i.test(sec.name);
+      const span = isSpokenSec ? 6 : 4;
+      row1Cells.push(HSec(sec.name.toUpperCase()));
+      for (let s = 1; s < span; s++) row1Cells.push(cell(""));
+      row2Cells.push(HCol("Obtained"), HCol("Total"), HCol("Percentage"), HCol("Time Taken"));
+      if (isSpokenSec) row2Cells.push(HCol("CEFR"), HCol("WPM"));
+    }
+  }
+
+  for (const [qNum, qTitle] of codingQList) {
+    row1Cells.push(HDark(`Q${qNum}: ${qTitle}`.toUpperCase()));
+    row1Cells.push(cell("")); row1Cells.push(cell("")); row1Cells.push(cell(""));
+    row2Cells.push(HCol("Obtained"), HCol("Total"), HCol("Accuracy %"), HCol("Time"));
+  }
+
+  row1Cells.push(HMain("OVERALL PERFORMANCE"));
+  for (let s = 1; s < 5; s++) row1Cells.push(cell(""));
+  row2Cells.push(HCol("Overall Score"), HCol("Total Marks"), HCol("Percentage %"), HCol("Status"), HCol("Category"));
+
+  const dataRows: any[][] = results.map((r, rIdx) => {
+    const bg = rIdx % 2 === 0 ? "FFFFFF" : "F8FAFC";
+    const row: any[] = [
+      CD(rIdx + 1, bg),
+      CD(r.rollNumber, bg),
+      CD(r.name, bg, "000000", true, 10),
+      CD(r.email, bg),
+      CD(r.college, bg),
+      CD(r.department, bg),
+      CD(formatYear(r.year), bg),
+      CD(r.testName, bg),
+      CD(r.testId, bg),
+      CD((r.assessmentType || "mcq").toUpperCase(), bg),
+      CD(r.startedAt ? formatTime(r.startedAt) : "—", bg),
+      CD(r.submittedAt ? formatTime(r.submittedAt) : "—", bg),
+      CD(formatHrMinSec(r.timeTakenSeconds), bg),
+      CD(r.violationCount, bg),
+      CD(r.autoSubmitted ? "Yes" : "No", bg),
+    ];
+
+    if (isSpoken) {
+      row.push(CD(r.cefrLevel || "—", bg), CD(r.cefrName || "—", bg), CD(r.wpm || "—", bg), CD(r.fillerCount ?? "—", bg));
+    } else {
+      for (const sec of secs) {
+        const isSpokenSec = /spoken|speech|communication|sea/i.test(sec.name);
+        const sData = r.sections.find((s) => s.name === sec.name);
+        if (sData) {
+          row.push(CD(sData.score, bg), CD(sData.totalMarks, bg), CD(`${sData.percentage}%`, bg), CD(sData.timeTaken, bg));
+          if (isSpokenSec) row.push(CD(sData.cefrLevel ?? r.cefrLevel ?? "—", bg), CD(sData.wpm ?? r.wpm ?? "—", bg));
+        } else {
+          row.push(CD("—", bg), CD("—", bg), CD("—", bg), CD("—", bg));
+          if (isSpokenSec) row.push(CD("—", bg), CD("—", bg));
+        }
+      }
+    }
+
+    for (const [qNum] of codingQList) {
+      const c = r.codingSubmissions.find((sub) => sub.questionNumber === qNum);
+      if (c?.attempted) {
+        row.push(CD(c.score, bg), CD(c.maxMarks, bg), CD(`${c.accuracy}%`, bg), CD(c.timeTaken, bg));
+      } else {
+        row.push(cell("Did Not Attempt", { bg: "FEF3C7", fg: "92400E" }), cell("Did Not Attempt", { bg: "FEF3C7", fg: "92400E" }), cell("—", { bg: "FEF3C7" }), cell("—", { bg: "FEF3C7" }));
+      }
+    }
+
+    const passBg = r.percentage >= passThreshold ? "D1FAE5" : "FEE2E2";
+    const passFg = r.percentage >= passThreshold ? "065F46" : "991B1B";
+    row.push(CD(r.score, bg), CD(r.totalMarks, bg), CD(`${Math.round(r.percentage * 10) / 10}%`, bg, "000000", true, 10), cell(r.status, { bg: passBg, fg: passFg, bold: true }), CD(r.category, bg));
+
+    return row;
+  });
+
+  const dataAoa = [row1Cells, row2Cells, ...dataRows];
+  const ws = XLSX.utils.aoa_to_sheet(dataAoa);
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, summaryWs, "Summary");
+  XLSX.utils.book_append_sheet(wb, ws, "Test Results");
+  return wb;
 }
 
 // ── Section Analysis Excel ────────────────────────────────────────────────────

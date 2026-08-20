@@ -21,19 +21,51 @@ export interface ResultRow {
   percentage: number;
   passed: boolean;
   status: string;
+  startedAt: Date | null;
   submittedAt: Date | null;
   violations: number;
   timeTakenSeconds: number;
+  autoSubmitted?: boolean;
+  submissionReason?: string;
+  rawDoc?: Record<string, unknown>;
 }
 
-function toDate(value: unknown): Date | null {
+export function toDate(value: unknown): Date | null {
   if (!value) return null;
-  if (typeof value === "string") {
-    const d = new Date(value);
-    return Number.isNaN(d.getTime()) ? null : d;
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+  if (typeof value === "number") {
+    const d = new Date(value > 1e11 ? value : value * 1000);
+    return isNaN(d.getTime()) ? null : d;
   }
-  const ts = value as { toDate?: () => Date };
-  return typeof ts.toDate === "function" ? ts.toDate() : null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed || trimmed === "—" || trimmed === "N/A" || trimmed === "null") return null;
+    if (/^\d{10,13}$/.test(trimmed)) {
+      const num = Number(trimmed);
+      const d = new Date(num > 1e11 ? num : num * 1000);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    const d = new Date(trimmed);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const ts = value as { toDate?: () => Date; seconds?: number; _seconds?: number };
+  if (typeof ts.toDate === "function") {
+    try {
+      const d = ts.toDate();
+      return isNaN(d.getTime()) ? null : d;
+    } catch {
+      return null;
+    }
+  }
+  if (typeof ts.seconds === "number") {
+    const d = new Date(ts.seconds * 1000);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  if (typeof ts._seconds === "number") {
+    const d = new Date(ts._seconds * 1000);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  return null;
 }
 
 function rowFromDoc(
@@ -45,9 +77,9 @@ function rowFromDoc(
   const proctor = (data["proctorSummary"] ?? {}) as Record<string, unknown>;
 
   const totalScore = Number(data["score"] ?? data["totalScore"] ?? 0);
-  const maxScore = Number(data["totalMarks"] ?? data["maxScore"] ?? 0);
+  const maxScore = Number(data["totalMarks"] ?? data["maxScore"] ?? data["totalQuestions"] ?? 0);
   const assessmentTitle = String(
-    data["assessmentName"] ?? data["testName"] ?? data["assessmentTitle"] ?? data["title"] ?? ""
+    data["assessmentTitle"] ?? data["assessmentName"] ?? data["testName"] ?? data["title"] ?? data["name"] ?? ""
   );
 
   // Path: assessmentResults/{tenantId}/{assessmentId}/{userId}
@@ -55,42 +87,73 @@ function rowFromDoc(
   const tenantIdFromPath = pathParts[0] === "assessmentResults" ? (pathParts[1] ?? "") : "";
   const assessmentIdFromPath = pathParts[0] === "assessmentResults" ? (pathParts[2] ?? "") : "";
 
-  const assessmentId = overrideAssessmentId ?? String(data["assessmentId"] ?? data["testID"] ?? assessmentIdFromPath);
+  const assessmentId = overrideAssessmentId ?? String(data["assessmentId"] ?? data["testID"] ?? data["testId"] ?? assessmentIdFromPath);
   const tenantId = overrideTenantId ?? String(data["tenantId"] ?? data["college"] ?? tenantIdFromPath ?? "");
 
-  const rawType = String(data["type"] ?? "");
+  const rawType = String(data["type"] ?? data["assessmentType"] ?? data["testType"] ?? "mcq");
   const assessmentType = rawType.replace("multi-section", "multisection");
   const assessmentVersion = Number(data["assessmentVersion"] ?? 1);
-  const timeTakenSeconds = Number(data["timeTakenSeconds"] ?? data["timeTaken"] ?? 0);
+
+  const startedAt = toDate(
+    data["startedAt"] ??
+    data["startedAtISO"] ??
+    data["timeStarted"] ??
+    data["timeStartedISO"] ??
+    data["startTime"] ??
+    data["startTimeISO"] ??
+    data["started_at"]
+  );
+
+  const submittedAt = toDate(
+    data["submittedAt"] ??
+    data["submittedAtISO"] ??
+    data["completedAt"] ??
+    data["completedAtISO"] ??
+    data["timeCompleted"] ??
+    data["timestamp"]
+  );
+
+  let timeTakenSeconds = Number(data["timeTakenSeconds"] ?? data["timeTaken"] ?? data["durationSeconds"] ?? 0);
+  if (!timeTakenSeconds && startedAt && submittedAt) {
+    timeTakenSeconds = Math.max(0, Math.round((submittedAt.getTime() - startedAt.getTime()) / 1000));
+  }
+
   const pct = Number(data["percentage"] ?? (maxScore > 0 ? (totalScore / maxScore) * 100 : 0));
-  const passThreshold = Number(data["passPercentage"] ?? 40);
-  const passed = pct >= passThreshold;
+  const passThreshold = Number(data["passPercentage"] ?? data["passMark"] ?? 40);
+  const passed = typeof data["passed"] === "boolean" ? (data["passed"] as boolean) : (pct >= passThreshold);
   const cohortId = String(data["cohortId"] ?? data["year"] ?? "");
   const year = String(data["year"] ?? cohortId ?? "");
 
+  const autoSubmitted = Boolean(data["autoSubmitted"] ?? data["auto_submitted"] ?? false);
+  const submissionReason = String(data["submissionReason"] ?? data["autoSubmitReason"] ?? (autoSubmitted ? "auto_submit" : "manual"));
+
   return {
     path: d.ref.path,
-    userId: String(data["userId"] ?? data["email"] ?? d.id),
-    email: String(data["email"] ?? ""),
-    displayName: String(data["displayName"] ?? data["name"] ?? ""),
+    userId: String(data["userId"] ?? data["uid"] ?? data["email"] ?? d.id),
+    email: String(data["email"] ?? data["Email"] ?? ""),
+    displayName: String(data["displayName"] ?? data["name"] ?? data["Name"] ?? ""),
     tenantId,
     cohortId,
     year,
-    department: String(data["department"] ?? ""),
-    rollNumber: String(data["rollNumber"] ?? ""),
+    department: String(data["department"] ?? data["Department"] ?? ""),
+    rollNumber: String(data["rollNumber"] ?? data["Roll Number"] ?? data["rollNo"] ?? data["RollNo"] ?? data["regNo"] ?? data["registerNumber"] ?? data["roll"] ?? ""),
     assessmentId,
-    assessmentTitle,
+    assessmentTitle: assessmentTitle || assessmentId,
     assessmentType,
     type: assessmentType,
     assessmentVersion,
     totalScore,
     maxScore,
-    percentage: pct,
+    percentage: Math.round(pct * 10) / 10,
     passed,
     status: String(data["status"] ?? "submitted"),
-    submittedAt: toDate(data["submittedAt"] ?? data["submittedAtISO"]),
-    violations: Number(proctor["totalViolations"] ?? data["violationCount"] ?? 0),
+    startedAt,
+    submittedAt,
+    violations: Number(proctor["totalViolations"] ?? data["violationCount"] ?? (Array.isArray(data["violations"]) ? data["violations"].length : 0)),
     timeTakenSeconds,
+    autoSubmitted,
+    submissionReason,
+    rawDoc: data,
   } satisfies ResultRow;
 }
 

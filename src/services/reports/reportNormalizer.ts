@@ -399,9 +399,11 @@ export function normalizeReportResult(
   const timeTaken = formatHrMinSec(timeSec);
 
   // Timestamps
-  const submittedAtDate = row.submittedAt ?? null;
+  const submittedAtDate = row.submittedAt ?? (rawDoc ? toDateSafe(rawDoc["submittedAt"] ?? rawDoc["submittedAtISO"] ?? rawDoc["completedAt"] ?? rawDoc["completedAtISO"] ?? rawDoc["timeCompleted"]) : null);
   const submittedAt = submittedAtDate ? submittedAtDate.toISOString() : "";
-  const startedAt = rawDoc ? parseTimestamp(rawDoc["startedAt"] ?? rawDoc["timeStartedISO"] ?? rawDoc["started_at"]) : "";
+  const startedAt = rawDoc
+    ? parseTimestamp(rawDoc["startedAt"] ?? rawDoc["startedAtISO"] ?? rawDoc["timeStartedISO"] ?? rawDoc["timeStarted"] ?? rawDoc["startTimeISO"] ?? rawDoc["startTime"] ?? rawDoc["started_at"])
+    : (row.startedAt ? row.startedAt.toISOString() : "");
 
   // Categories
   const ic = getInsightCategory(pct);

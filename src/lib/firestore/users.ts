@@ -20,18 +20,30 @@ const USERS = "users";
 const BATCH_LIMIT = 400;
 
 function mapUser(id: string, data: Record<string, unknown>): AppUser {
+  const email = String(data['email'] ?? data['Email'] ?? "").trim().toLowerCase();
+  const displayName = String(data['displayName'] ?? data['name'] ?? data['Name'] ?? "").trim();
+  const tenantId = String(data['tenantId'] ?? data['TenantId'] ?? data['collegeCode'] ?? data['CollegeCode'] ?? "").trim();
+  const cohortId = String(data['cohortId'] ?? data['CohortId'] ?? data['year'] ?? data['Year'] ?? "").trim();
+  const rollNumber = String(
+    data['rollNumber'] ?? data['Roll Number'] ?? data['rollNo'] ?? data['RollNo'] ?? 
+    data['regNo'] ?? data['registerNumber'] ?? data['roll'] ?? ""
+  ).trim();
+  const department = String(data['department'] ?? data['Department'] ?? data['dept'] ?? "").trim();
+  const college = String(data['college'] ?? data['College'] ?? data['collegeName'] ?? tenantId).trim();
+  const year = String(data['year'] ?? data['Year'] ?? cohortId).trim();
+
   return {
-    uid: String(data['uid'] ?? id),
-    email: String(data['email'] ?? ""),
-    displayName: String(data['displayName'] ?? data['name'] ?? ""),
-    role: (String(data['role'] ?? "student") as Role) ?? "student",
-    tenantId: String(data['tenantId'] ?? data['college'] ?? ""),
-    cohortId: String(data['cohortId'] ?? data['year'] ?? ""),
-    college: data['college'] ? String(data['college']) : undefined,
-    year: data['year'] ? String(data['year']) : undefined,
-    department: data['department'] ? String(data['department']) : undefined,
-    rollNumber: data['rollNumber'] ? String(data['rollNumber']) : undefined,
-    premium: data['premium'] === true,
+    uid: String(data['uid'] ?? data['UID'] ?? id).trim(),
+    email,
+    displayName,
+    role: (String(data['role'] ?? data['Role'] ?? "student") as Role) ?? "student",
+    tenantId: tenantId || college,
+    cohortId,
+    college: college || undefined,
+    year: year || undefined,
+    department: department || undefined,
+    rollNumber: rollNumber || undefined,
+    premium: Boolean(data['premium'] === true || data['Premium'] === true || data['isPremium'] === true),
     createdAt: (data['createdAt'] ?? null) as AppUser["createdAt"],
     lastLoginAt: (data['lastLoginAt'] ?? null) as AppUser["lastLoginAt"],
   };

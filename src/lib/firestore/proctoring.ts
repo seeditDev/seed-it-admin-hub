@@ -36,16 +36,16 @@ export async function listProctorEvents(max = 3000): Promise<ProctorEventRow[]> 
         attemptId: String(data['attemptId'] ?? d.ref.parent.parent?.id ?? ""),
         assessmentId: String(data['assessmentId'] ?? ""),
         assessmentTitle: String(data['assessmentTitle'] ?? ""),
-        userId: String(data['userId'] ?? ""),
-        email: String(data['email'] ?? ""),
-        displayName: String(data['displayName'] ?? ""),
-        tenantId: String(data['tenantId'] ?? ""),
+        userId: String(data['userId'] ?? data['uid'] ?? ""),
+        email: String(data['email'] ?? data['Email'] ?? ""),
+        displayName: String(data['displayName'] ?? data['name'] ?? data['Name'] ?? ""),
+        tenantId: String(data['tenantId'] ?? data['TenantId'] ?? ""),
         year: String(data['year'] ?? data['cohortId'] ?? ""),
-        department: String(data['department'] ?? ""),
+        department: String(data['department'] ?? data['Department'] ?? ""),
         type,
         severity: severityFor(type, data['severity']),
-        detail: String(data['detail'] ?? data['message'] ?? ""),
-        at: toDate(data['at'] ?? data['createdAt'] ?? data['timestamp']),
+        detail: String(data['detail'] ?? data['details'] ?? data['message'] ?? data['description'] ?? ""),
+        at: toDate(data['at'] ?? data['clientTimestamp'] ?? data['createdAt'] ?? data['timestamp']),
       } satisfies ProctorEventRow;
     })
     .sort((a, b) => (b.at?.getTime() ?? 0) - (a.at?.getTime() ?? 0));

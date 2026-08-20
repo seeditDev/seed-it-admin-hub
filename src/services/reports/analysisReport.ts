@@ -48,11 +48,11 @@ function kpiBox(doc: jsPDF, x: number, y: number, w: number, h: number, label: s
   doc.text(label, x + w / 2, y + h / 2 + 5, { align: "center" });
 }
 
-export function generateAnalysisPdf(
+export function buildAnalysisPdfDoc(
   results: NormalizedResult[],
   opts: { testName?: string; college?: string; year?: string } = {},
-): void {
-  if (results.length === 0) return;
+): jsPDF | null {
+  if (results.length === 0) return null;
   const assessmentName = opts.testName ?? results[0]?.assessmentId ?? "Assessment";
   const passThreshold = 40;
   const total = results.length;
@@ -290,10 +290,24 @@ export function generateAnalysisPdf(
     doc.setPage(i);
     doc.setDrawColor(200,200,200); doc.setLineWidth(0.2); doc.line(5, 290, 205, 290);
     doc.setFontSize(7); doc.setTextColor(150,150,150); doc.setFont("helvetica", "normal");
-    doc.text("SEED-IT Platform - Confidential - For Internal Use Only", 105, 294, { align: "center" });
+    doc.text("SEED-IT Platform - Confidential Institutional Performance Report", 105, 294, { align: "center" });
     doc.text(`Page ${i} of ${pageCount}`, 200, 294, { align: "right" });
   }
 
-  const filename = `SEED-IT-Analysis-${(opts.testName ?? "report").replace(/[^a-z0-9]/gi, "_")}-${new Date().toISOString().slice(0,10)}.pdf`;
+  return doc;
+}
+
+export function generateAnalysisPdf(
+  results: NormalizedResult[],
+  opts: { testName?: string; college?: string; year?: string } = {},
+): void {
+  if (results.length === 0) return;
+  const doc = buildAnalysisPdfDoc(results, opts);
+  if (!doc) return;
+
+  const college  = (opts.college || results[0]?.college || "College").replace(/[/\\?%*:|"<>]/g, "_");
+  const testName = (opts.testName || results[0]?.testName || "Assessment").replace(/[/\\?%*:|"<>]/g, "_");
+  const dateStr  = new Date().toISOString().slice(0, 10);
+  const filename = `${college}-${testName}-Institutional_Analysis-${dateStr}.pdf`;
   doc.save(filename);
 }
