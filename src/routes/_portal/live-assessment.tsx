@@ -29,6 +29,8 @@ import {
   collectionGroup,
   query,
   where,
+  orderBy,
+  limit,
   getDocs,
   deleteDoc,
   doc,
@@ -174,6 +176,8 @@ function LiveAssessmentPage() {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | "assessment">("all");
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  // P1-05: true when the query hit the 50-session limit (more may exist)
+  const [isCapped, setIsCapped] = useState(false);
 
   // Confirm dialog
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -198,11 +202,19 @@ function LiveAssessmentPage() {
     try {
       // All assessment types (MCQ, Coding, MSA) write live session state to
       // users/{userId}/contestAttempts/{assessmentId} via assessmentSessionService.
-      // A single collectionGroup query is sufficient — no parallel fetch needed.
+      // P1-05: Bounded read — cap at 50 most-recently-active sessions.
+      // A collectionGroup without limit() reads every active session across
+      // all users/tenants, which fans out at O(N) reads per page load.
+      // The composite index on [completed, startedAt DESC] is required
+      // (added to firestore.indexes.json).
+      const LIVE_SESSION_LIMIT = 50;
       const snap = await getDocs(query(
         collectionGroup(db, "contestAttempts"),
         where("completed", "==", false),
+        orderBy("startedAt", "desc"),
+        limit(LIVE_SESSION_LIMIT),
       ));
+      const isCapped = snap.docs.length >= LIVE_SESSION_LIMIT;
 
       const result: ActiveSession[] = snap.docs.map((d) => {
         const data = d.data() as Record<string, unknown>;
@@ -234,6 +246,7 @@ function LiveAssessmentPage() {
         return bMs - aMs;
       });
       setSessions(result);
+      setIsCapped(isCapped);
       setLastRefresh(new Date());
     } catch (err) {
       console.error("[LiveAssessment] fetchSessions error:", err);
@@ -400,10 +413,21 @@ function LiveAssessmentPage() {
         </Button>
       </div>
 
+      {/* Cap warning — shown when query hit the 50-session limit */}
+      {isCapped && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-400 flex items-center gap-2">
+          <span className="text-base">⚠️</span>
+          <span>
+            Showing the 50 most recent active sessions. More sessions may exist.
+            Use the tenant/assessment filters or refresh to load newer data.
+          </span>
+        </div>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
-          { label: "Active Sessions", value: sessions.length, color: "text-emerald-400" },
+          { label: "Active Sessions", value: isCapped ? "50+" : sessions.length, color: "text-emerald-400" },
           { label: "Stale (>10 min)", value: staleCount, color: staleCount > 0 ? "text-red-400" : "text-muted-foreground" },
           { label: "Total Assessments", value: assessmentCount, color: "text-indigo-400" },
           { label: "Role", value: isAdmin ? "Super Admin" : "Staff", color: "text-sm font-semibold", icon: <Shield className="size-4 text-indigo-400 mr-1" /> },
