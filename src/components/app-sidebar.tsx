@@ -3,10 +3,12 @@ import {
   Building2,
   BookOpenCheck,
   ClipboardList,
+  Code2,
   Database,
   GraduationCap,
   LayoutDashboard,
   ListChecks,
+  Mic,
   Radio,
   Users,
   UserSquare2,
@@ -44,7 +46,9 @@ const MANAGE: NavItem[] = [
 ];
 
 const AUTHOR: NavItem[] = [
-  { title: "Assessment Creator", url: "/mcq-creator", icon: ClipboardList },
+  { title: "MCQ Creator", url: "/mcq-creator", icon: ClipboardList },
+  { title: "Coding Creator", url: "/coding-creator", icon: Code2 },
+  { title: "SEA Creator", url: "/sea-creator", icon: Mic },
   { title: "Question Bank", url: "/question-bank", icon: Database },
 ];
 
