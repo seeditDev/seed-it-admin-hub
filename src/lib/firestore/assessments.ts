@@ -140,7 +140,10 @@ function mapAssessment(id: string, data: Record<string, unknown>): AssessmentDoc
   return {
     id,
     title: String(data['title'] ?? id),
-    type: String(data['type'] ?? "mcq").replace("multi-section", "multisection") as AssessmentType,
+    // Always normalize to the single canonical type "assessment".
+    // Legacy Firestore docs may contain "mcq" | "coding" | "multisection" | "spoken-english"
+    // but since this is now a fresh application, we always surface "assessment" to the UI.
+    type: "assessment" as AssessmentType,
     tenantId,
     cohortIds: Array.isArray(data['cohortIds']) ? (data['cohortIds'] as string[]) : undefined,
     durationMinutes: Number(data['durationMinutes'] ?? 0),

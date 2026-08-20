@@ -114,7 +114,8 @@ interface ActiveSession {
   uid: string;
   assessmentId: string;
   assessmentName: string;
-  type: "mcq" | "msa" | "coding" | string;
+  /** All sessions are now of type "assessment" — the single canonical type. */
+  type: "assessment" | string;
   startedAtISO: string;
   lastSavedAt: Timestamp | null;
   timeRemainingSeconds: number;
@@ -171,7 +172,7 @@ function LiveAssessmentPage() {
   const [sessions, setSessions] = useState<ActiveSession[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
-  const [typeFilter, setTypeFilter] = useState<"all" | "mcq" | "msa" | "coding">("all");
+  const [typeFilter, setTypeFilter] = useState<"all" | "assessment">("all");
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   // Confirm dialog
@@ -214,7 +215,8 @@ function LiveAssessmentPage() {
           uid,
           assessmentId,
           assessmentName: String(data["assessmentName"] ?? assessmentId),
-          type: String(data["type"] ?? "msa") as ActiveSession["type"],
+          // Normalize to canonical 'assessment' type
+          type: "assessment",
           startedAtISO: String(data["startedAtISO"] ?? ""),
           lastSavedAt: (data["lastSavedAt"] as Timestamp) ?? null,
           timeRemainingSeconds: Number(data["timeRemainingSeconds"] ?? 0),
@@ -361,7 +363,7 @@ function LiveAssessmentPage() {
     (s) => s.lastSavedAt && Date.now() - s.lastSavedAt.toMillis() > 10 * 60000,
   ).length;
 
-  const msaCount = sessions.filter((s) => s.type === "msa").length;
+  const assessmentCount = sessions.length;
 
   // ── Render ────────────────────────────────────────────────────────────────────
 
@@ -403,7 +405,7 @@ function LiveAssessmentPage() {
         {[
           { label: "Active Sessions", value: sessions.length, color: "text-emerald-400" },
           { label: "Stale (>10 min)", value: staleCount, color: staleCount > 0 ? "text-red-400" : "text-muted-foreground" },
-          { label: "MSA Sessions", value: msaCount, color: "text-indigo-400" },
+          { label: "Total Assessments", value: assessmentCount, color: "text-indigo-400" },
           { label: "Role", value: isAdmin ? "Super Admin" : "Staff", color: "text-sm font-semibold", icon: <Shield className="size-4 text-indigo-400 mr-1" /> },
         ].map(({ label, value, color, icon }) => (
           <Card key={label} className="glass-panel rounded-2xl border">
@@ -430,7 +432,7 @@ function LiveAssessmentPage() {
           />
         </div>
         <div className="flex gap-1">
-          {(["all", "mcq", "msa", "coding"] as const).map((t) => (
+          {(["all", "assessment"] as const).map((t) => (
             <Button
               key={t}
               size="sm"
@@ -438,7 +440,7 @@ function LiveAssessmentPage() {
               className="rounded-xl h-8 text-xs"
               onClick={() => setTypeFilter(t)}
             >
-              {t.toUpperCase()}
+              {t === "all" ? "ALL" : "Assessment"}
             </Button>
           ))}
         </div>
@@ -476,7 +478,7 @@ function LiveAssessmentPage() {
                 : level === "warn"
                   ? "text-yellow-400"
                   : "text-red-400";
-            const isMSA = session.type === "msa";
+            // All sessions are Assessments (unified type)
             const sectionEntries = Object.entries(session.sections);
 
             return (
@@ -495,7 +497,7 @@ function LiveAssessmentPage() {
                           variant="outline"
                           className="rounded-full text-[10px] px-2 py-0"
                         >
-                          {session.type.toUpperCase()}
+                          Assessment
                         </Badge>
                         {level === "stale" && (
                           <Badge
@@ -532,8 +534,8 @@ function LiveAssessmentPage() {
                     </div>
                   )}
 
-                  {/* MSA section progress summary */}
-                  {isMSA && sectionEntries.length > 0 && (
+                  {/* Section progress summary (all assessments can have sections) */}
+                  {sectionEntries.length > 0 && (
                     <div className="space-y-0.5 rounded-lg bg-muted/20 p-2">
                       {sectionEntries.map(([id, sec]) => (
                         <div
@@ -588,13 +590,11 @@ function LiveAssessmentPage() {
                       }
                     >
                       <ChevronRight className="size-3" />
-                      {isMSA
-                        ? "Resume (student continues unfinished sections)"
-                        : "Resume (student continues from last save)"}
+                      Resume (student continues from last save)
                     </Button>
 
-                    {/* MSA: Manage Sections */}
-                    {isMSA && (
+                    {/* Manage Sections — available for all assessments */}
+                    {sectionEntries.length > 0 && (
                       <Button
                         id={`sections-${session.uid}-${session.assessmentId}`}
                         variant="outline"

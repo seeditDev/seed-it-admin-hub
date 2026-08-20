@@ -1,7 +1,15 @@
 import type { Timestamp } from "firebase/firestore";
 
 export type Role = "student" | "staff" | "admin" | "superadmin";
-export type AssessmentType = "mcq" | "coding" | "multisection" | "spoken-english";
+/**
+ * There is only ONE assessment type: "assessment".
+ * MCQ / Coding / Spoken English are SECTION types within an assessment — not top-level types.
+ * Legacy values ("mcq", "coding", "multisection", "spoken-english") are kept as aliases for
+ * backward read compatibility only. New documents are always written as "assessment".
+ */
+export type AssessmentType = "assessment";
+/** Section-level type — what kind of questions this section contains. */
+export type SectionType = "mcq" | "coding" | "spoken_english";
 export type AssessmentStatus = "draft" | "active" | "archived";
 export type ProctorMode = "face" | "audio" | "face+audio" | "off";
 
